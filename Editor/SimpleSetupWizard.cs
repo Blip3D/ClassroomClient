@@ -6,7 +6,11 @@ namespace ClassroomClient.Editor
 {
     public class SimpleSetupWizard : EditorWindow
     {
+<<<<<<< HEAD
         private string serverUrl = "wss://blip3d.com";
+=======
+        private string serverUrl = "ws://192.168.1.100:9000";
+>>>>>>> 100f85e43adee7632bec059d5fd1aa5081d9ec2d
         private string deviceSecret = "";
         private string appName = "VR Training App";
         private bool showSecret = false;
@@ -31,7 +35,11 @@ namespace ClassroomClient.Editor
             EditorGUILayout.HelpBox(
                 "Enter the server URL provided by your IT department.\n" +
                 "Local classroom: ws://192.168.x.x:9000\n" +
+<<<<<<< HEAD
                 "Cloud / university server: wss://blip3d.com",
+=======
+                "Cloud / university server: wss://yourserver.com",
+>>>>>>> 100f85e43adee7632bec059d5fd1aa5081d9ec2d
                 MessageType.Info);
             EditorGUILayout.Space();
 
