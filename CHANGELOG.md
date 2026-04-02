@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.69.1] - 2026-04-02
+
+### Fixed
+- Removed dependency on Meta XR SDK (`Meta.Net.NativeWebSocket`)
+- Embedded NativeWebSocket as `ClassroomClient.Internal.WebSocket` — package now works in any Unity VR project regardless of installed SDKs
+- Fixed obsolete `FindFirstObjectByType` replaced with `FindAnyObjectByType`
+
 ## [1.69.0] — 2026-04-01
 
 ### Added
