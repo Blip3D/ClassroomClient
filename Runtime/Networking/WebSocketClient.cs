@@ -4,7 +4,7 @@ using System.Collections;
 using System.Threading.Tasks;
 using System.Collections.Concurrent;
 
-using Meta.Net.NativeWebSocket;
+using ClassroomClient.Internal.WebSocket;
 
 namespace ClassroomClient.Networking
 {
@@ -160,9 +160,9 @@ namespace ClassroomClient.Networking
             }
         }
         
-        private void HandleMessage(byte[] bytes, int offset, int length)
+        private void HandleMessage(byte[] data)
         {
-            HandleMessageInternal(bytes, offset, length);
+            HandleMessageInternal(data, 0, data.Length);
         }
 
         private void HandleMessageInternal(byte[] bytes, int offset, int length)
@@ -363,7 +363,7 @@ namespace ClassroomClient.Networking
             {
                 try
                 {
-                    ws.Close();
+                    _ = ws.Close();
                 }
                 catch (Exception e)
                 {

@@ -10,7 +10,7 @@ namespace ClassroomClient.API
         {
             get
             {
-                if (_manager == null) _manager = Object.FindFirstObjectByType<ClassroomClientManager>();
+                if (_manager == null) _manager = Object.FindAnyObjectByType<ClassroomClientManager>();
                 return _manager;
             }
         }
