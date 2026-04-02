@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="com.classroomclient.permissions">
+    
+    <!-- 
+        ClassroomClient Package Permissions
+        These are automatically merged with the host project's manifest.
+        
+        ACCESS_FINE_LOCATION: Required for WiFi SSID and signal level (Android 8+)
+        ACCESS_WIFI_STATE: Required for WiFi connection info
+    -->
+    
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+    
+</manifest>

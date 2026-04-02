@@ -1,0 +1,34 @@
+{
+    "name": "ClassroomClient",
+    "rootNamespace": "ClassroomClient",
+    "references": [
+        "Unity.WebRTC",
+        "Meta.Net.endel.nativewebsocket",
+        "Unity.TextMeshPro"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": true,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [
+        {
+            "name": "com.unity.webrtc",
+            "expression": "3.0.0-pre.8",
+            "define": "UNITY_WEBRTC"
+        },
+        {
+            "name": "com.unity.xr.management",
+            "expression": "4.5.1",
+            "define": "UNITY_XR_MANAGEMENT"
+        },
+        {
+            "name": "com.meta.xr.sdk.core",
+            "expression": "60.0.0",
+            "define": "META_SDK_AVAILABLE"
+        }
+    ],
+    "noEngineReferences": false
+}
