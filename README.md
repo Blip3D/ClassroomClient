@@ -58,10 +58,7 @@ Assets/ClassroomClient/
 See [`Documentation~/GettingStarted.md`](Documentation~/GettingStarted.md) for full setup instructions.
 
 Short version:
-<<<<<<< HEAD
 1. Window → Package Manager → Add package from git URL: https://github.com/Blip3D/ClassroomClient.git
-=======
-1. Window → Package Manager → Add package from git URL
 2. Tools → Classroom Client → Quick Setup
 3. Fill in Server URL and Device Secret → click Setup ClassroomClient
 4. Build and deploy to Quest
@@ -105,15 +102,3 @@ ClassroomEvents.OnDisconnected += () => { };
 
 // Send session status to server
 ClassroomClientAPI.SetStatus(SessionStatus.InProgress);
-```
-
----
-
-## Server Repository
-
-<<<<<<< HEAD
-[ClassroomController](https://git.rwth-aachen.de/blib3d/blip3d_development/classroomcontroller_pwa) — Node.js server + PWA dashboard
-
-**ClassroomClient package URL:** https://github.com/Blip3D/ClassroomClient.git
-=======
-[ClassroomController](../../../ClassroomController/classroomcontroller_pwa) — Node.js server + PWA dashboard
