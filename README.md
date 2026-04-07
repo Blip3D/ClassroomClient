@@ -118,4 +118,3 @@ ClassroomClientAPI.SetStatus(SessionStatus.InProgress);
 **ClassroomClient package URL:** https://github.com/Blip3D/ClassroomClient.git
 =======
 [ClassroomController](../../../ClassroomController/classroomcontroller_pwa) — Node.js server + PWA dashboard
->>>>>>> 100f85e43adee7632bec059d5fd1aa5081d9ec2d
