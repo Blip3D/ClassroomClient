@@ -62,7 +62,6 @@ Short version:
 1. Window → Package Manager → Add package from git URL: https://github.com/Blip3D/ClassroomClient.git
 =======
 1. Window → Package Manager → Add package from git URL
->>>>>>> 100f85e43adee7632bec059d5fd1aa5081d9ec2d
 2. Tools → Classroom Client → Quick Setup
 3. Fill in Server URL and Device Secret → click Setup ClassroomClient
 4. Build and deploy to Quest
