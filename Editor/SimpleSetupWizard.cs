@@ -6,11 +6,7 @@ namespace ClassroomClient.Editor
 {
     public class SimpleSetupWizard : EditorWindow
     {
-<<<<<<< HEAD
         private string serverUrl = "wss://blip3d.com";
-=======
-        private string serverUrl = "ws://192.168.1.100:9000";
->>>>>>> 100f85e43adee7632bec059d5fd1aa5081d9ec2d
         private string deviceSecret = "";
         private string appName = "VR Training App";
         private bool showSecret = false;
@@ -35,11 +31,7 @@ namespace ClassroomClient.Editor
             EditorGUILayout.HelpBox(
                 "Enter the server URL provided by your IT department.\n" +
                 "Local classroom: ws://192.168.x.x:9000\n" +
-<<<<<<< HEAD
                 "Cloud / university server: wss://blip3d.com",
-=======
-                "Cloud / university server: wss://yourserver.com",
->>>>>>> 100f85e43adee7632bec059d5fd1aa5081d9ec2d
                 MessageType.Info);
             EditorGUILayout.Space();
 
@@ -141,8 +133,9 @@ namespace ClassroomClient.Editor
                 // 4. Create StreamingCamera as child of main camera
                 Camera streamingCamera = CreateStreamingCamera(targetCamera);
 
-                // 5. Create separate root HUD object
+                // 5. Create HUD as child of ClassroomClient GameObject
                 GameObject hudGO = new GameObject("ClassroomClient_HUD");
+                hudGO.transform.SetParent(classroomClientGO.transform, false);
                 var hudType = System.Type.GetType("ClassroomClient.HUD.ClassroomHUD, ClassroomClient");
                 if (hudType != null)
                 {

@@ -8,13 +8,13 @@ ClassroomClient runs silently in the background of any Unity VR application. It 
 
 ## Roles
 
-**Supervisor** — operates the PWA dashboard, monitors streams, starts and ends sessions.
+**Supervisor** :— operates the PWA dashboard, monitors streams, starts and ends sessions.
 
-**Participant** — wears the VR headset. Their view is streamed to the supervisor.
+**Participant** :— wears the VR headset. Their view is streamed to the supervisor.
 
-**VR Developer** — integrates this package into a Unity project.
+**VR Developer** :— integrates this package into a Unity project.
 
-**Server Administrator** — deploys and maintains the ClassroomController server.
+**Server Administrator** :— deploys and maintains the ClassroomController server.
 
 ---
 
@@ -24,40 +24,10 @@ ClassroomClient runs silently in the background of any Unity VR application. It 
 - Meta Quest (any model) or Android XR device
 - A running ClassroomController server
 
----
 
-## Package Structure
-
-```
-Assets/ClassroomClient/
-  Runtime/
-    Core/
-      ClassroomClientManager.cs     Singleton MonoBehaviour — state machine, message handler
-      ConnectionState.cs            Enum: Disconnected | Connecting | InLobby | InSession | Reconnecting | PendingApproval
-    Networking/
-      WebSocketClient.cs            WebSocket connection with reconnect and send queue
-      WebRTCConnection.cs           RTCPeerConnection, VideoStreamTrack, ICE handling
-    HUD/
-      ClassroomHUD.cs               World space canvas — follows camera, hosts status dot and notifications
-      StatusIndicator.cs            Coloured dot showing connection state
-      NotificationPanel.cs          Timed notification overlay with fade-out
-    API/
-      ClassroomClientAPI.cs         Static public API — the only surface the VR app needs to touch
-      ClassroomEvents.cs            Static C# events for the VR app to subscribe to
-      SessionStatus.cs              Enum: NotStarted | InProgress | Completed | Error
-    Utilities/
-      DeviceStatusProvider.cs       Battery level, WiFi signal, charging state (Android native)
-  Editor/
-    SimpleSetupWizard.cs            Quick setup wizard: Tools → Classroom Client → Quick Setup
-```
-
----
 
 ## Quick Start
 
-See [`Documentation~/GettingStarted.md`](Documentation~/GettingStarted.md) for full setup instructions.
-
-Short version:
 1. Window → Package Manager → Add package from git URL: https://github.com/Blip3D/ClassroomClient.git
 2. Tools → Classroom Client → Quick Setup
 3. Fill in Server URL and Device Secret → click Setup ClassroomClient
@@ -81,8 +51,8 @@ Short version:
 |---|---|
 | Red | Disconnected |
 | Yellow | Connecting or reconnecting |
-| Green | Connected — in lobby |
-| Blue | In active session — streaming |
+| Green | Connected — streaming |
+
 
 ---
 
@@ -102,3 +72,4 @@ ClassroomEvents.OnDisconnected += () => { };
 
 // Send session status to server
 ClassroomClientAPI.SetStatus(SessionStatus.InProgress);
+
