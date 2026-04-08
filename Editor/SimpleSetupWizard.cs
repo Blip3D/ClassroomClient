@@ -7,9 +7,10 @@ namespace ClassroomClient.Editor
     public class SimpleSetupWizard : EditorWindow
     {
         private string serverUrl = "";
-        private string deviceSecret = "";
+        private string serverToken = "";
+        private string deviceName = "";
         private string appName = "VR Training App";
-        private bool showSecret = false;
+        private bool showToken = false;
 
         static SimpleSetupWizard()
         {
@@ -35,24 +36,28 @@ namespace ClassroomClient.Editor
                 MessageType.Info);
             EditorGUILayout.Space();
 
+            deviceName = EditorGUILayout.TextField("Device Name", deviceName);
+            EditorGUILayout.HelpBox("A friendly name for this headset (e.g. Station 1, Quest Lab A).", MessageType.None);
+            EditorGUILayout.Space();
+
             serverUrl = EditorGUILayout.TextField("Server URL", serverUrl);
 
             EditorGUILayout.BeginHorizontal();
-            if (showSecret)
-                deviceSecret = EditorGUILayout.TextField("Device Secret", deviceSecret);
+            if (showToken)
+                serverToken = EditorGUILayout.TextField("Server Token", serverToken);
             else
-                deviceSecret = EditorGUILayout.PasswordField("Device Secret", deviceSecret);
-            if (GUILayout.Button(showSecret ? "Hide" : "Show", GUILayout.Width(45)))
-                showSecret = !showSecret;
+                serverToken = EditorGUILayout.PasswordField("Server Token", serverToken);
+            if (GUILayout.Button(showToken ? "Hide" : "Show", GUILayout.Width(45)))
+                showToken = !showToken;
             EditorGUILayout.EndHorizontal();
 
             appName = EditorGUILayout.TextField("App Name", appName);
 
             EditorGUILayout.Space();
 
-            bool configValid = !string.IsNullOrEmpty(serverUrl) && !string.IsNullOrEmpty(deviceSecret);
+            bool configValid = !string.IsNullOrEmpty(serverUrl) && !string.IsNullOrEmpty(serverToken);
             if (!configValid)
-                EditorGUILayout.HelpBox("Server URL and Device Secret are required.", MessageType.Warning);
+                EditorGUILayout.HelpBox("Server URL and Server Token are required.", MessageType.Warning);
 
             EditorGUI.BeginDisabledGroup(!configValid);
             if (GUILayout.Button("Setup ClassroomClient", GUILayout.Height(40)))
@@ -285,15 +290,21 @@ namespace ClassroomClient.Editor
                 if (serverUrlField != null)
                     serverUrlField.stringValue = serverUrl;
 
-                var deviceSecretField = managerSO.FindProperty("deviceSecret");
-                if (deviceSecretField != null)
-                    deviceSecretField.stringValue = deviceSecret;
+                var serverTokenField = managerSO.FindProperty("serverToken");
+                if (serverTokenField != null)
+                    serverTokenField.stringValue = serverToken;
 
                 var appNameField = managerSO.FindProperty("appName");
                 if (appNameField != null)
                     appNameField.stringValue = appName;
 
                 managerSO.ApplyModifiedProperties();
+
+                var webSocketSO = new SerializedObject(webSocket);
+                var deviceNameField = webSocketSO.FindProperty("deviceName");
+                if (deviceNameField != null)
+                    deviceNameField.stringValue = deviceName;
+                webSocketSO.ApplyModifiedProperties();
 
                 var webRTCSO = new SerializedObject(webRTC);
                 var webRTCCameraField = webRTCSO.FindProperty("streamCamera");

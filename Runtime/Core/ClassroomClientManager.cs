@@ -11,8 +11,8 @@ namespace ClassroomClient.Core
     public class ClassroomClientManager : MonoBehaviour
     {
         [Header("Manual Network Configuration")]
-        [SerializeField] private string serverUrl = "";
-        [SerializeField] private string deviceSecret = "";
+        [HideInInspector] [SerializeField] private string serverUrl = "";
+        [HideInInspector] [SerializeField] private string serverToken = "";
         [SerializeField] private string appName = "VR Training App";
 
         [Header("Camera Setup")]
@@ -203,7 +203,7 @@ namespace ClassroomClient.Core
             webSocketClient.OnDisconnected += OnWebSocketDisconnected;
             webSocketClient.OnConnectionFailed += OnWebSocketConnectionFailed;
             webSocketClient.OnMessageReceived += OnWebSocketMessageReceived;
-            webSocketClient.SetDeviceSecret(deviceSecret);
+            webSocketClient.SetServerToken(serverToken);
             webSocketClient.SetAppInfo(appName, Application.identifier, "");
         }
 

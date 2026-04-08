@@ -14,14 +14,14 @@ namespace ClassroomClient.Networking
     public class WebSocketClient : MonoBehaviour
     {
         [Header("Device Registration")]
-        [SerializeField] private string deviceId;
-        [SerializeField] private string deviceName = "HMD Client";
+        private string deviceId;
+        [HideInInspector] [SerializeField] private string deviceName = "";
         
         // App info (set by ClassroomClientManager)
         private string appName = "";
         private string bundleId = "";
         private string currentScene = "";
-        private string deviceSecret = "";
+        private string serverToken = "";
         
         // WebSocket connection
         private WebSocket ws;
@@ -201,7 +201,7 @@ namespace ClassroomClient.Networking
                 appName = appName,
                 bundleId = string.IsNullOrEmpty(bundleId) ? Application.identifier : bundleId,
                 currentScene = currentScene,
-                deviceSecret = this.deviceSecret,
+                deviceSecret = this.serverToken,
                 deviceModel = SystemInfo.deviceModel,
             };
             
@@ -228,9 +228,9 @@ namespace ClassroomClient.Networking
             currentScene = scene ?? "";
         }
         
-        public void SetDeviceSecret(string secret)
+        public void SetServerToken(string token)
         {
-            deviceSecret = secret ?? "";
+            serverToken = token ?? "";
         }
         
         public new void SendMessage(string message)
