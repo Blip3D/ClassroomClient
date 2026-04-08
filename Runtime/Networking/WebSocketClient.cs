@@ -198,9 +198,6 @@ namespace ClassroomClient.Networking
                 deviceId = GetDeviceId(),
                 deviceName = deviceName,
                 deviceType = "XR_STREAMING_CLIENT",
-                usePOVCapture = false, // Removed POV capture
-                hasCaptureManager = false, // Removed capture manager
-                captureStatus = "Not Available", // Removed POV capture
                 appName = appName,
                 bundleId = string.IsNullOrEmpty(bundleId) ? Application.identifier : bundleId,
                 currentScene = currentScene,
