@@ -175,7 +175,6 @@ namespace ClassroomClient.Networking
                     return;
                 }
 
-                // Meta NativeWebSocket provides a segment view (data+offset+length).
                 string message = System.Text.Encoding.UTF8.GetString(bytes, offset, length);
 
                 // Queue message for processing on main thread (thread-safe)
@@ -284,9 +283,6 @@ namespace ClassroomClient.Networking
             public string deviceId;
             public string deviceName;
             public string deviceType;
-            public bool usePOVCapture;
-            public bool hasCaptureManager;
-            public string captureStatus;
             // Content library fields
             public string appName;
             public string bundleId;

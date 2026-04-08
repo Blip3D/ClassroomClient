@@ -12,7 +12,7 @@ namespace ClassroomClient.Core
     {
         [Header("Manual Network Configuration")]
         [SerializeField] private string serverUrl = "";
-        [SerializeField] private string deviceSecret = "local-dev-secret";
+        [SerializeField] private string deviceSecret = "";
         [SerializeField] private string appName = "VR Training App";
 
         [Header("Camera Setup")]
