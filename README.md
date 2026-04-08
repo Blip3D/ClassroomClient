@@ -6,18 +6,6 @@ ClassroomClient runs silently in the background of any Unity VR application. It 
 
 ---
 
-## Roles
-
-**Supervisor** :— operates the PWA dashboard, monitors streams, starts and ends sessions.
-
-**Participant** :— wears the VR headset. Their view is streamed to the supervisor.
-
-**VR Developer** :— integrates this package into a Unity project.
-
-**Server Administrator** :— deploys and maintains the ClassroomController server.
-
----
-
 ## Requirements
 
 - Unity 2021.3 or newer
