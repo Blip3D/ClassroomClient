@@ -11,12 +11,27 @@ namespace ClassroomClient.Networking
     {
         [Header("Camera Setup")]
         [SerializeField] public Camera streamCamera;
-        
-        [Header("WebRTC Configuration")]
-        [SerializeField] public string stunServer = "stun:stun.l.google.com:19302";
-        [SerializeField] public int streamWidth = 1280;
-        [SerializeField] public int streamHeight = 720;
-        
+
+        [Header("Stream Quality")]
+        [SerializeField] private StreamResolution streamResolution = StreamResolution.Resolution720p;
+
+        public enum StreamResolution
+        {
+            [InspectorName("360p")] Resolution360p,
+            [InspectorName("720p")] Resolution720p,
+            [InspectorName("1080p")] Resolution1080p,
+        }
+
+        private (int width, int height, ulong bitrate) GetStreamConfig()
+        {
+            return streamResolution switch
+            {
+                StreamResolution.Resolution360p => (640, 360, 500_000UL),
+                StreamResolution.Resolution1080p => (1920, 1080, 4_000_000UL),
+                _ => (1280, 720, 2_000_000UL) // 720p default
+            };
+        }
+
         // WebRTC Components
         private RTCPeerConnection peerConnection;
         private VideoStreamTrack videoTrack;
@@ -132,7 +147,8 @@ namespace ClassroomClient.Networking
             
             streamCamera.gameObject.SetActive(true);
 
-            var rt = new RenderTexture(streamWidth, streamHeight, 24, RenderTextureFormat.BGRA32);
+            var (width, height, bitrate) = GetStreamConfig();
+            var rt = new RenderTexture(width, height, 24, RenderTextureFormat.BGRA32);
             rt.useMipMap = false;
             rt.autoGenerateMips = false;
             rt.Create();
@@ -155,7 +171,7 @@ namespace ClassroomClient.Networking
                             var parameters = sender.GetParameters();
                             foreach (var encoding in parameters.encodings)
                             {
-                                encoding.maxBitrate = 2_000_000;
+                                encoding.maxBitrate = (ulong)bitrate;
                                 encoding.maxFramerate = 30;
                             }
                             sender.SetParameters(parameters);
@@ -205,7 +221,8 @@ namespace ClassroomClient.Networking
             
             try
             {
-                newVideoTrack = streamCamera.CaptureStreamTrack(streamWidth, streamHeight);
+                var (width, height, _) = GetStreamConfig();
+                newVideoTrack = streamCamera.CaptureStreamTrack(width, height);
             }
             catch (Exception e)
             {
@@ -364,7 +381,12 @@ namespace ClassroomClient.Networking
         {
             if (peerConnection.SignalingState != RTCSignalingState.HaveLocalOffer)
             {
-                yield break;
+                yield return new WaitForSeconds(0.3f);
+                if (peerConnection.SignalingState != RTCSignalingState.HaveLocalOffer)
+                {
+                    Debug.LogWarning($"[WebRTCConnection] HandleAnswerCoroutine — unexpected signaling state: {peerConnection.SignalingState}, discarding answer");
+                    yield break;
+                }
             }
             
             RTCSessionDescription answer = new RTCSessionDescription

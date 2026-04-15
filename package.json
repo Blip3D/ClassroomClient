@@ -1,7 +1,7 @@
 {
   "name": "com.blip3d.classroomclient",
   "displayName": "ClassroomClient",
-  "version": "1.70.0",
+  "version": "2.69.0",
   "unity": "2021.3",
   "description": "Silent background layer for Unity VR applications. Connects to ClassroomController server, streams headset view to the supervisor dashboard, and displays overlay notifications.",
   "dependencies": {
@@ -11,6 +11,6 @@
   "keywords": ["VR", "streaming", "WebRTC", "classroom", "Quest"],
   "author": {
     "name": "BLIP3D",
-    "url": "https://blip3d.com"
+    "url": "https://blip3d.de"
   }
 }

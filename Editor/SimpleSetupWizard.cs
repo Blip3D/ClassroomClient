@@ -11,6 +11,9 @@ namespace ClassroomClient.Editor
         private string deviceName = "";
         private string appName = "VR Training App";
         private bool showToken = false;
+        private bool _setupComplete;
+        private SceneLibraryStep _sceneLibraryStep;
+        private Component _createdManager;
 
         static SimpleSetupWizard()
         {
@@ -25,57 +28,72 @@ namespace ClassroomClient.Editor
 
         void OnGUI()
         {
-            GUILayout.Label("ClassroomClient Setup", EditorStyles.largeLabel);
-            EditorGUILayout.Space();
-
-            EditorGUILayout.LabelField("Server Configuration", EditorStyles.boldLabel);
-            EditorGUILayout.HelpBox(
-                "Enter the server URL provided by your IT department.\n" +
-                "Local classroom: ws://192.168.x.x:9000\n" +
-                "Cloud / university server: wss://your-university-server.com",
-                MessageType.Info);
-            EditorGUILayout.Space();
-
-            deviceName = EditorGUILayout.TextField("Device Name", deviceName);
-            EditorGUILayout.HelpBox("A friendly name for this headset (e.g. Station 1, Quest Lab A).", MessageType.None);
-            EditorGUILayout.Space();
-
-            serverUrl = EditorGUILayout.TextField("Server URL", serverUrl);
-
-            EditorGUILayout.BeginHorizontal();
-            if (showToken)
-                serverToken = EditorGUILayout.TextField("Server Token", serverToken);
-            else
-                serverToken = EditorGUILayout.PasswordField("Server Token", serverToken);
-            if (GUILayout.Button(showToken ? "Hide" : "Show", GUILayout.Width(45)))
-                showToken = !showToken;
-            EditorGUILayout.EndHorizontal();
-
-            appName = EditorGUILayout.TextField("App Name", appName);
-
-            EditorGUILayout.Space();
-
-            bool configValid = !string.IsNullOrEmpty(serverUrl) && !string.IsNullOrEmpty(serverToken);
-            if (!configValid)
-                EditorGUILayout.HelpBox("Server URL and Server Token are required.", MessageType.Warning);
-
-            EditorGUI.BeginDisabledGroup(!configValid);
-            if (GUILayout.Button("Setup ClassroomClient", GUILayout.Height(40)))
+            if (!_setupComplete)
             {
-                SetupClassroomClient();
-            }
-            EditorGUI.EndDisabledGroup();
+                GUILayout.Label("ClassroomClient Setup", EditorStyles.largeLabel);
+                EditorGUILayout.Space();
 
-            EditorGUILayout.Space();
-            EditorGUILayout.HelpBox(
-                "This will:\n" +
-                "• Create ClassroomClient as a persistent root GameObject\n" +
-                "• Add ClassroomClientManager, WebRTCConnection, WebSocketClient\n" +
-                "• Create StreamingCamera as child of main camera\n" +
-                "• Wire all component references automatically\n" +
-                "• Pre-fill server URL, device secret, and app name\n\n" +
-                "The VR application is never modified. ClassroomClient runs silently underneath.",
-                MessageType.Info);
+                EditorGUILayout.LabelField("Server Configuration", EditorStyles.boldLabel);
+                EditorGUILayout.HelpBox(
+                    "Enter the server URL provided by your IT department.\n" +
+                    "Local classroom: ws://192.168.x.x:9000\n" +
+                    "Cloud / university server: wss://your-university-server.com",
+                    MessageType.Info);
+                EditorGUILayout.Space();
+
+                deviceName = EditorGUILayout.TextField("Device Name", deviceName);
+                EditorGUILayout.HelpBox("A friendly name for this headset (e.g. Station 1, Quest Lab A).", MessageType.None);
+                EditorGUILayout.Space();
+
+                serverUrl = EditorGUILayout.TextField("Server URL", serverUrl);
+
+                EditorGUILayout.BeginHorizontal();
+                if (showToken)
+                    serverToken = EditorGUILayout.TextField("Server Token", serverToken);
+                else
+                    serverToken = EditorGUILayout.PasswordField("Server Token", serverToken);
+                if (GUILayout.Button(showToken ? "Hide" : "Show", GUILayout.Width(45)))
+                    showToken = !showToken;
+                EditorGUILayout.EndHorizontal();
+
+                appName = EditorGUILayout.TextField("App Name", appName);
+
+                EditorGUILayout.Space();
+
+                bool configValid = !string.IsNullOrEmpty(serverUrl) && !string.IsNullOrEmpty(serverToken);
+                if (!configValid)
+                    EditorGUILayout.HelpBox("Server URL and Server Token are required.", MessageType.Warning);
+
+                EditorGUI.BeginDisabledGroup(!configValid);
+                if (GUILayout.Button("Setup ClassroomClient", GUILayout.Height(40)))
+                {
+                    SetupClassroomClient();
+                }
+                EditorGUI.EndDisabledGroup();
+
+                EditorGUILayout.Space();
+                EditorGUILayout.HelpBox(
+                    "This will:\n" +
+                    "• Create ClassroomClient as a persistent root GameObject\n" +
+                    "• Add ClassroomClientManager, WebRTCConnection, WebSocketClient\n" +
+                    "• Create StreamingCamera as child of main camera\n" +
+                    "• Wire all component references automatically\n" +
+                    "• Pre-fill server URL, server token, and app name\n\n" +
+                    "The VR application is never modified. ClassroomClient runs silently underneath.",
+                    MessageType.Info);
+            }
+            else
+            {
+                bool done = _sceneLibraryStep.DrawGUI(_createdManager);
+                if (done)
+                {
+                    EditorUtility.DisplayDialog("Setup Complete",
+                        "ClassroomClient and scene library are configured.\n" +
+                        "Build and deploy to Quest.",
+                        "OK");
+                    Close();
+                }
+            }
         }
 
         private void SetupClassroomClient()
@@ -91,6 +109,16 @@ namespace ClassroomClient.Editor
             {
                 EditorUtility.DisplayDialog("Error", "No camera found! Please add a camera to the scene.", "OK");
                 return;
+            }
+
+            // Destroy any existing ClassroomClient GameObjects to prevent duplicates on re-run
+            var rootObjects = UnityEngine.SceneManagement.SceneManager.GetActiveScene().GetRootGameObjects();
+            foreach (var go in rootObjects)
+            {
+                if (go.name == "ClassroomClient")
+                {
+                    DestroyImmediate(go);
+                }
             }
 
             // Create ClassroomClient as ROOT GameObject (persists across scene loads)
@@ -135,6 +163,17 @@ namespace ClassroomClient.Editor
                     Debug.LogError("[ClassroomClient] WebSocketClient type not found!");
                 }
 
+                // 3b. Add ClassroomSceneManager
+                var sceneManagerType = System.Type.GetType("ClassroomClient.Core.ClassroomSceneManager, ClassroomClient");
+                if (sceneManagerType != null)
+                {
+                    classroomClientGO.AddComponent(sceneManagerType);
+                }
+                else
+                {
+                    Debug.LogWarning("[ClassroomClient] ClassroomSceneManager type not found — scene management unavailable");
+                }
+
                 // 4. Create StreamingCamera as child of main camera
                 Camera streamingCamera = CreateStreamingCamera(targetCamera);
 
@@ -154,14 +193,14 @@ namespace ClassroomClient.Editor
                 // 6. Auto-reference all components
                 SetupComponentReferences(classroomClientGO, streamingCamera, hudGO);
 
-                Debug.Log("[ClassroomClient] Setup complete!");
-                EditorUtility.DisplayDialog("Setup Complete",
-                    "ClassroomClient is ready.\n\n" +
-                    "Configured:\n" +
-                    "  Server URL: " + serverUrl + "\n" +
-                    "  App Name:   " + appName + "\n\n" +
-                    "All components created and wired automatically.\n" +
-                    "Build and deploy to Quest — the package connects silently on app start.", "OK");
+                Debug.Log("[ClassroomClient] Setup complete — configure scene library next.");
+
+                // Transition to scene library step
+                var managerComponent = classroomClientGO.GetComponent("ClassroomClient.Core.ClassroomClientManager") as Component;
+                _createdManager = managerComponent;
+                _setupComplete = true;
+                _sceneLibraryStep = new SceneLibraryStep();
+                Repaint();
             }
             catch (System.Exception e)
             {

@@ -47,6 +47,14 @@ namespace ClassroomClient.Core
 
         private ConnectionState currentState = ConnectionState.Disconnected;
         private string currentSessionId;
+
+        [Header("Scene Management")]
+        [SerializeField] private SceneLibrary sceneLibrary;
+
+        private string _avatarUrl = null;
+        private string _currentSceneName = "";
+        private ClassroomSceneManager _classroomSceneManager;
+
         public ConnectionState CurrentState => currentState;
 
         private static bool isPersistentInstanceInitialized = false;
@@ -140,6 +148,7 @@ namespace ClassroomClient.Core
             SetupWebSocketClient();
             SetupWebRTCConnection();
             SetupDeviceStatusProvider();
+            SetupClassroomSceneManager();
             isInitialized = true;
         }
 
@@ -155,6 +164,15 @@ namespace ClassroomClient.Core
             }
         }
 
+        private void SetupClassroomSceneManager()
+        {
+            _classroomSceneManager = GetComponent<ClassroomSceneManager>();
+            if (_classroomSceneManager != null)
+            {
+                _classroomSceneManager.Initialize(webSocketClient, this);
+            }
+        }
+
         private Camera CreateStreamingCamera(Camera mainCamera)
         {
             Transform existingStreamCam = mainCamera.transform.Find("StreamingCamera");
@@ -162,9 +180,7 @@ namespace ClassroomClient.Core
             {
                 Camera existingCam = existingStreamCam.GetComponent<Camera>();
                 if (existingCam != null)
-                {
                     return existingCam;
-                }
             }
 
             GameObject streamCamGO = new GameObject("StreamingCamera");
@@ -205,6 +221,7 @@ namespace ClassroomClient.Core
             webSocketClient.OnMessageReceived += OnWebSocketMessageReceived;
             webSocketClient.SetServerToken(serverToken);
             webSocketClient.SetAppInfo(appName, Application.identifier, "");
+            webSocketClient.SetAvatarUrl(_avatarUrl ?? "");
         }
 
         private void SetupWebRTCConnection()
@@ -386,6 +403,7 @@ namespace ClassroomClient.Core
                             currentState = ConnectionState.InLobby;
                             ClassroomEvents.FireOnConnected();
                             hud?.UpdateStatus(currentState);
+                            SendContentLibrary();
                             break;
 
                         case "rejected":
@@ -450,7 +468,6 @@ namespace ClassroomClient.Core
                             break;
 
                         case "pong":
-                            Debug.Log("[ClassroomClientManager] Received pong");
                             break;
 
                         default:
@@ -502,11 +519,17 @@ namespace ClassroomClient.Core
                     break;
 
                 case "LOAD_SCENE":
-                    Debug.Log("[ClassroomClientManager] LOAD_SCENE received — future scope");
+                    // Format: LOAD_SCENE|SERVER|{deviceId}|{sceneKey}|{loadType}
+                    if (parts.Length >= 4 && _classroomSceneManager != null)
+                    {
+                        string sceneKey = parts[3];
+                        SceneInfo info = sceneLibrary != null ? sceneLibrary.GetSceneByKey(sceneKey) : null;
+                        _classroomSceneManager.LoadScene(info);
+                    }
                     break;
 
                 case "REQUEST_CONTENT_LIBRARY":
-                    Debug.Log("[ClassroomClientManager] REQUEST_CONTENT_LIBRARY received — future scope");
+                    SendContentLibrary();
                     break;
 
                 default:
@@ -615,7 +638,6 @@ namespace ClassroomClient.Core
                 webRTCConnection.CreatePeerConnection();
                 createVideoTrackDelayCoroutine = StartCoroutine(CreateVideoTrackWithDelay());
                 isStreaming = true;
-                OnStreamingStarted?.Invoke();
             }
             else
             {
@@ -819,6 +841,85 @@ namespace ClassroomClient.Core
             };
 
             webSocketClient.SendMessage(JsonUtility.ToJson(message));
+        }
+
+        public void SetAvatarUrl(string url)
+        {
+            _avatarUrl = url ?? "";
+            webSocketClient?.SetAvatarUrl(_avatarUrl);
+        }
+
+        public Camera GetStreamCamera() => streamCamera;
+
+        public void SetStreamCamera(Camera cam)
+        {
+            if (cam == null) return;
+            streamCamera = cam;
+            if (webRTCConnection != null && webRTCConnection.streamCamera != cam)
+            {
+                if (isStreaming)
+                {
+                    StartCoroutine(webRTCConnection.ReplaceVideoTrack(cam));
+                }
+                else
+                {
+                    webRTCConnection.streamCamera = cam;
+                    webRTCConnection.ReinitializeIfNeeded();
+                }
+            }
+        }
+
+        public void NotifySceneDownloaded()
+        {
+            SendContentLibrary();
+        }
+
+        public void ReportCurrentScene(string sceneKey)
+        {
+            _currentSceneName = sceneKey ?? "";
+            webSocketClient?.SetCurrentScene(_currentSceneName);
+            if (webSocketClient == null || !webSocketClient.IsConnected) return;
+            string deviceId = SystemInfo.deviceUniqueIdentifier;
+            webSocketClient.SendMessage($"CURRENT_SCENE|{deviceId}|SERVER|{sceneKey}");
+        }
+
+        public void ReportSceneLoaded(string sceneKey)
+        {
+            if (webSocketClient == null || !webSocketClient.IsConnected) return;
+            string deviceId = SystemInfo.deviceUniqueIdentifier;
+            webSocketClient.SendMessage($"SCENE_LOADED|{deviceId}|SERVER|{sceneKey}");
+        }
+
+        public void ReportSceneLoadFailed(string sceneKey, string reason)
+        {
+            if (webSocketClient == null || !webSocketClient.IsConnected) return;
+            string deviceId = SystemInfo.deviceUniqueIdentifier;
+            webSocketClient.SendMessage($"SCENE_LOAD_FAILED|{deviceId}|SERVER|{sceneKey}|{reason}");
+        }
+
+        private void SendContentLibrary()
+        {
+            if (webSocketClient == null || !webSocketClient.IsConnected) return;
+
+            ContentLibraryData data;
+            if (sceneLibrary != null)
+            {
+                data = sceneLibrary.ToContentLibraryData(appName, Application.identifier, _currentSceneName);
+            }
+            else
+            {
+                data = new ContentLibraryData
+                {
+                    appName = appName ?? "",
+                    bundleId = Application.identifier,
+                    currentScene = _currentSceneName,
+                    scenes = new SceneInfoData[0],
+                };
+            }
+
+            string json = JsonUtility.ToJson(data);
+            string deviceId = SystemInfo.deviceUniqueIdentifier;
+            webSocketClient.SendMessage($"CONTENT_LIBRARY|{deviceId}|SERVER|{json}");
         }
 
         public bool IsInitialized => isInitialized;

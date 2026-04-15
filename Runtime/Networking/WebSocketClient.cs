@@ -21,6 +21,7 @@ namespace ClassroomClient.Networking
         private string appName = "";
         private string bundleId = "";
         private string currentScene = "";
+        private string _avatarUrl = "";
         private string serverToken = "";
         
         // WebSocket connection
@@ -61,7 +62,7 @@ namespace ClassroomClient.Networking
         {
             // Process all queued messages on main thread
             int processedCount = 0;
-            while (messageQueue.TryDequeue(out string message) && processedCount < 10) // Limit to prevent blocking
+            while (messageQueue.TryDequeue(out string message) && processedCount < 50) // Limit to prevent blocking
             {
                 try
                 {
@@ -201,8 +202,9 @@ namespace ClassroomClient.Networking
                 appName = appName,
                 bundleId = string.IsNullOrEmpty(bundleId) ? Application.identifier : bundleId,
                 currentScene = currentScene,
-                deviceSecret = this.serverToken,
+                serverToken = this.serverToken,
                 deviceModel = SystemInfo.deviceModel,
+                avatarUrl = string.IsNullOrEmpty(_avatarUrl) ? null : _avatarUrl,
             };
             
             string json = JsonUtility.ToJson(registrationMessage);
@@ -227,7 +229,14 @@ namespace ClassroomClient.Networking
         {
             currentScene = scene ?? "";
         }
-        
+
+        public void SetAvatarUrl(string url)
+        {
+            _avatarUrl = url ?? "";
+        }
+
+        public string GetCurrentScene() => currentScene ?? "";
+
         public void SetServerToken(string token)
         {
             serverToken = token ?? "";
@@ -264,7 +273,6 @@ namespace ClassroomClient.Networking
                 
                 string json = JsonUtility.ToJson(pingMessage);
                 SendMessage(json);
-                Debug.Log("[WebSocketClient] Sent keep-alive ping");
             }
             catch (Exception e)
             {
@@ -284,8 +292,9 @@ namespace ClassroomClient.Networking
             public string appName;
             public string bundleId;
             public string currentScene;
-            public string deviceSecret;
+            public string serverToken;
             public string deviceModel;
+            public string avatarUrl;
         }
         
         [System.Serializable]

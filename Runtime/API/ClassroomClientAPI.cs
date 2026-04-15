@@ -16,16 +16,25 @@ namespace ClassroomClient.API
         }
 
         public static void SetStatus(SessionStatus status)
-        {
-            Manager?.SendSessionStatus(status.ToString().ToLower());
-        }
+            => Manager?.SendSessionStatus(status.ToString());
+
+        public static void SetAvatarUrl(string url)
+            => Manager?.SetAvatarUrl(url);
+
+        public static void ReportCurrentScene(string sceneKey)
+            => Manager?.ReportCurrentScene(sceneKey);
+
+        public static void ReportSceneLoaded(string sceneKey)
+            => Manager?.ReportSceneLoaded(sceneKey);
+
+        public static void ReportSceneLoadFailed(string sceneKey, string reason = "")
+            => Manager?.ReportSceneLoadFailed(sceneKey, reason);
+
+        public static Camera GetStreamCamera() => Manager?.GetStreamCamera();
+        public static void SetStreamCamera(Camera camera) => Manager?.SetStreamCamera(camera);
 
         public static bool IsConnected() => Manager != null && Manager.CurrentState != ConnectionState.Disconnected;
         public static bool IsInSession() => Manager != null && Manager.CurrentState == ConnectionState.InSession;
         public static ConnectionState GetConnectionState() => Manager?.CurrentState ?? ConnectionState.Disconnected;
-
-        public static void ReportCurrentScene(string sceneKey) => Debug.Log("[ClassroomClientAPI] ReportCurrentScene — future scope");
-        public static void ReportSceneLoaded(string sceneKey) => Debug.Log("[ClassroomClientAPI] ReportSceneLoaded — future scope");
-        public static void ReportSceneLoadFailed(string sceneKey) => Debug.Log("[ClassroomClientAPI] ReportSceneLoadFailed — future scope");
     }
 }
