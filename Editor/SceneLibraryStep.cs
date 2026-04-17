@@ -21,6 +21,7 @@ namespace ClassroomClient.Editor
         private AddressableFormData _newAddressable = new AddressableFormData();
         private bool _initialised;
         private Vector2 _scroll;
+        private bool _addressablesInstalled;
 
         private static readonly string[] CategoryOptions =
             { "General", "Training", "Simulation", "Assessment", "Lab", "Other" };
@@ -93,7 +94,7 @@ namespace ClassroomClient.Editor
                         GUILayout.Width(110));
                     GUILayout.Space(12);
                     row.customLoading = EditorGUILayout.ToggleLeft(
-                        new GUIContent("Custom Loading", "Check this if the scene is loaded via Unity Addressables (Addressables.LoadSceneAsync). Leave unchecked for standard SceneManager.LoadScene loading."),
+                        new GUIContent("Custom Loading", "Check this if you will handle scene loading yourself via the OnLoadSceneRequested callback. ClassroomClient will send the signal but will not load the scene. Leave unchecked to let ClassroomClient load the scene automatically."),
                         row.customLoading);
                     EditorGUILayout.EndHorizontal();
                     EditorGUI.EndDisabledGroup();
@@ -130,7 +131,7 @@ namespace ClassroomClient.Editor
                         GUILayout.Width(110));
                     GUILayout.Space(12);
                     row.customLoading = EditorGUILayout.ToggleLeft(
-                        new GUIContent("Custom Loading", "Check this if the scene is loaded via Unity Addressables (Addressables.LoadSceneAsync). Leave unchecked for standard SceneManager.LoadScene loading."),
+                        new GUIContent("Custom Loading", "Check this if you will handle scene loading yourself via the OnLoadSceneRequested callback. ClassroomClient will send the signal but will not load the scene. Leave unchecked to let ClassroomClient load the scene automatically."),
                         row.customLoading);
                     EditorGUILayout.EndHorizontal();
                     EditorGUILayout.EndVertical();
@@ -142,44 +143,50 @@ namespace ClassroomClient.Editor
             EditorGUILayout.EndScrollView();
 
             // ── Add Addressable button / mini-form ───────────────────────────
-            if (!_showAddressableForm)
+            if (_addressablesInstalled)
             {
-                if (GUILayout.Button("+ Add Addressable Scene"))
+                if (!_showAddressableForm)
                 {
-                    _showAddressableForm = true;
-                    _newAddressable = new AddressableFormData();
-                }
-            }
-            else
-            {
-                EditorGUILayout.BeginVertical(EditorStyles.helpBox);
-                EditorGUILayout.LabelField("New Addressable Scene", EditorStyles.miniBoldLabel);
-                _newAddressable.displayName = EditorGUILayout.TextField("Display Name", _newAddressable.displayName);
-                _newAddressable.addressableKey = EditorGUILayout.TextField("Addressable Key", _newAddressable.addressableKey);
-                _newAddressable.categoryIndex = EditorGUILayout.Popup("Category",
-                    _newAddressable.categoryIndex, CategoryOptions);
-                _newAddressable.customLoading = EditorGUILayout.ToggleLeft(
-                    new GUIContent("Custom Loading", "Check this if the scene is loaded via Unity Addressables (Addressables.LoadSceneAsync). Leave unchecked for standard SceneManager.LoadScene loading."),
-                    _newAddressable.customLoading);
-                EditorGUILayout.BeginHorizontal();
-                if (GUILayout.Button("Add"))
-                {
-                    if (!string.IsNullOrEmpty(_newAddressable.displayName) &&
-                        !string.IsNullOrEmpty(_newAddressable.addressableKey))
+                    if (GUILayout.Button("+ Add Addressable Scene"))
                     {
-                        _addressableRows.Add(new AddressableRow
+                        _showAddressableForm = true;
+                        _newAddressable = new AddressableFormData
                         {
-                            displayName = _newAddressable.displayName,
-                            addressableKey = _newAddressable.addressableKey,
-                            categoryIndex = _newAddressable.categoryIndex,
-                            customLoading = _newAddressable.customLoading,
-                        });
-                        _showAddressableForm = false;
+                            customLoading = _buildRows.Count == 0
+                        };
                     }
                 }
-                if (GUILayout.Button("Cancel")) _showAddressableForm = false;
-                EditorGUILayout.EndHorizontal();
-                EditorGUILayout.EndVertical();
+                else
+                {
+                    EditorGUILayout.BeginVertical(EditorStyles.helpBox);
+                    EditorGUILayout.LabelField("New Addressable Scene", EditorStyles.miniBoldLabel);
+                    _newAddressable.displayName = EditorGUILayout.TextField("Display Name", _newAddressable.displayName);
+                    _newAddressable.addressableKey = EditorGUILayout.TextField("Addressable Key", _newAddressable.addressableKey);
+                    _newAddressable.categoryIndex = EditorGUILayout.Popup("Category",
+                        _newAddressable.categoryIndex, CategoryOptions);
+                    _newAddressable.customLoading = EditorGUILayout.ToggleLeft(
+                        new GUIContent("Custom Loading", "Check this if you will handle scene loading yourself via the OnLoadSceneRequested callback. ClassroomClient will send the signal but will not load the scene. Leave unchecked to let ClassroomClient load the scene automatically."),
+                        _newAddressable.customLoading);
+                    EditorGUILayout.BeginHorizontal();
+                    if (GUILayout.Button("Add"))
+                    {
+                        if (!string.IsNullOrEmpty(_newAddressable.displayName) &&
+                            !string.IsNullOrEmpty(_newAddressable.addressableKey))
+                        {
+                            _addressableRows.Add(new AddressableRow
+                            {
+                                displayName = _newAddressable.displayName,
+                                addressableKey = _newAddressable.addressableKey,
+                                categoryIndex = _newAddressable.categoryIndex,
+                                customLoading = _newAddressable.customLoading,
+                            });
+                            _showAddressableForm = false;
+                        }
+                    }
+                    if (GUILayout.Button("Cancel")) _showAddressableForm = false;
+                    EditorGUILayout.EndHorizontal();
+                    EditorGUILayout.EndVertical();
+                }
             }
 
             EditorGUILayout.Space();
@@ -211,6 +218,10 @@ namespace ClassroomClient.Editor
                     customLoading = false,
                 });
             }
+
+            _addressablesInstalled = System.Type.GetType(
+                "UnityEngine.AddressableAssets.Addressables, Unity.Addressables") != null;
+
             _initialised = true;
         }
 
