@@ -198,19 +198,30 @@ namespace ClassroomClient.Core
 
             if (handle.Status == AsyncOperationStatus.Succeeded)
             {
-                // Activate the newly loaded scene
+                // Do NOT call SetActiveScene. Calling it while the OVR Camera Rig is moving to
+                // DontDestroyOnLoad fires activeSceneChanged on OVRManager before the Camera Rig
+                // is stable, causing the compositor to lose its frame submission path (HMD freezes).
+                // Unity automatically promotes the new scene to active when the old one unloads.
                 Scene newScene = handle.Result.Scene;
-                if (newScene.IsValid())
-                    SceneManager.SetActiveScene(newScene);
 
                 _currentContentSceneName = newScene.name;
                 _currentIsAddressable = true;
                 _currentAddressableHandle = handle;
                 _hasAddressableHandle = true;
 
-                // Unload the previous scene
                 if (hasPreviousAddressableHandle)
                 {
+                    Scene prevScene = previousAddressableHandle.Result.Scene;
+                    if (prevScene.IsValid())
+                    {
+                        foreach (var root in prevScene.GetRootGameObjects())
+                        {
+                            foreach (var r in root.GetComponentsInChildren<Renderer>(true))
+                                r.enabled = false;
+                            foreach (var l in root.GetComponentsInChildren<Light>(true))
+                                l.enabled = false;
+                        }
+                    }
                     yield return Addressables.UnloadSceneAsync(previousAddressableHandle);
                     Debug.Log($"[ClassroomSceneManager] Unloaded previous addressable scene: {previousSceneName}");
                 }
@@ -219,6 +230,13 @@ namespace ClassroomClient.Core
                     Scene prevScene = SceneManager.GetSceneByName(previousSceneName);
                     if (prevScene.IsValid() && prevScene.isLoaded)
                     {
+                        foreach (var root in prevScene.GetRootGameObjects())
+                        {
+                            foreach (var r in root.GetComponentsInChildren<Renderer>(true))
+                                r.enabled = false;
+                            foreach (var l in root.GetComponentsInChildren<Light>(true))
+                                l.enabled = false;
+                        }
                         yield return SceneManager.UnloadSceneAsync(prevScene);
                         Debug.Log($"[ClassroomSceneManager] Unloaded previous scene: {previousSceneName}");
                     }

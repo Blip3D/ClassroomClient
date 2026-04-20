@@ -36,7 +36,7 @@ namespace ClassroomClient.Editor
                 EditorGUILayout.LabelField("Server Configuration", EditorStyles.boldLabel);
                 EditorGUILayout.HelpBox(
                     "Enter the server URL provided by your IT department.\n" +
-                    "Local classroom: ws://192.168.x.x:9000\n" +
+                    "Raspberry Pi classroom: ws://192.168.50.1:8080\n" +
                     "Cloud / university server: wss://your-university-server.com",
                     MessageType.Info);
                 EditorGUILayout.Space();
