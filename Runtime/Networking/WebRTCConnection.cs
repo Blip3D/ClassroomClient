@@ -56,12 +56,16 @@ namespace ClassroomClient.Networking
         
         public void InitializeWebRTC()
         {
-            if (streamCamera == null)
+            if (streamCamera == null || streamCamera.GetComponent<ClassroomClient.Core.ClassroomStreamCameraMarker>() == null)
             {
-                Debug.LogError("[WebRTCConnection] Stream camera not assigned!");
+                // Only a dedicated, ClassroomClient-owned (marked) camera may be initialized/captured.
+                // Protects against an unmarked/eye camera serialized directly into this field, and
+                // against API Controlled mode before SetStreamCamera. ReinitializeIfNeeded() will
+                // initialize once a marked camera is set.
+                Debug.Log("[WebRTCConnection] No dedicated (marked) stream camera yet — deferring WebRTC init.");
                 return;
             }
-            
+
             isInitialized = true;
         }
         
@@ -152,6 +156,16 @@ namespace ClassroomClient.Networking
             rt.useMipMap = false;
             rt.autoGenerateMips = false;
             rt.Create();
+
+            // Release the dedicated camera's "parking" RenderTexture before swapping in the
+            // stream-sized one, so the temporary RT created in CreateStreamingCamera isn't orphaned.
+            if (streamCamera.targetTexture != null)
+            {
+                var oldRt = streamCamera.targetTexture;
+                streamCamera.targetTexture = null;
+                oldRt.Release();
+                Destroy(oldRt);
+            }
             streamCamera.targetTexture = rt;
 
             yield return new WaitForSeconds(0.5f);

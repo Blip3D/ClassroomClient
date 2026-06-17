@@ -1,5 +1,16 @@
 # Changelog
 
+## [2.71.0] — 2026-06-17
+
+### Added
+- Quick Setup wizard **Camera Setup** mode: **Automatic** (ClassroomClient creates a dedicated streaming camera that follows the main/XR camera — for normal projects) and **API Controlled** (call `ClassroomClientAPI.SetStreamCamera(camera)` at runtime to choose the streamed viewpoint — for dynamic / Addressable-loaded camera rigs).
+- `ClassroomClientAPI.GetStreamSourceCamera()` — returns the developer-set source/viewpoint camera.
+
+### Fixed
+- Streaming no longer hijacks the HMD/eye camera (T15). `SetStreamCamera(camera)` now treats the passed camera as a source/viewpoint; ClassroomClient renders a dedicated, internally-marked capture camera that follows it. The source camera is never given a RenderTexture and never disabled — even if an eye camera was serialized into the field.
+- API Controlled mode: starting a session before a camera is set no longer errors; streaming waits and begins automatically once `SetStreamCamera` is called.
+- Dedicated capture RenderTexture now has a depth buffer (Unity 6 Render Graph requirement) and the dedicated camera renders only while streaming.
+
 ## [1.69.1] - 2026-04-02
 
 ### Fixed

@@ -15,8 +15,18 @@ namespace ClassroomClient.Core
         [HideInInspector] [SerializeField] private string serverToken = "";
         [SerializeField] private string appName = "VR Training App";
 
+        public enum CameraSetupMode { Automatic, ApiControlled }
+
         [Header("Camera Setup")]
+        [Tooltip("Automatic: ClassroomClient creates a dedicated streaming camera that follows the main/XR camera (normal projects). API Controlled: call ClassroomClientAPI.SetStreamCamera(camera) at runtime to choose the streamed viewpoint.")]
+        [SerializeField] private CameraSetupMode cameraSetupMode = CameraSetupMode.Automatic;
+        // The DEDICATED capture camera (ClassroomClient-owned, marked, renders to its own RenderTexture).
+        // The ONLY camera WebRTC captures — never the HMD/eye/source camera.
         [SerializeField] private Camera streamCamera;
+        // The source/viewpoint being mirrored (may be the eye camera). Never captured, never disabled.
+        private Camera streamSourceCamera;
+        // True when streaming was requested before a source camera existed (API Controlled mode).
+        private bool _streamRequested;
 
         [Header("Components")]
         [SerializeField] private WebSocketClient webSocketClient;
@@ -173,37 +183,47 @@ namespace ClassroomClient.Core
             }
         }
 
-        private Camera CreateStreamingCamera(Camera mainCamera)
+        private Camera CreateStreamingCamera(Camera source)
         {
-            Transform existingStreamCam = mainCamera.transform.Find("StreamingCamera");
+            Transform existingStreamCam = source.transform.Find("StreamingCamera");
             if (existingStreamCam != null)
             {
                 Camera existingCam = existingStreamCam.GetComponent<Camera>();
                 if (existingCam != null)
+                {
+                    if (existingCam.GetComponent<ClassroomStreamCameraMarker>() == null)
+                        existingCam.gameObject.AddComponent<ClassroomStreamCameraMarker>();
                     return existingCam;
+                }
             }
 
             GameObject streamCamGO = new GameObject("StreamingCamera");
-            streamCamGO.transform.SetParent(mainCamera.transform);
+            streamCamGO.transform.SetParent(source.transform);
             streamCamGO.transform.localPosition = Vector3.zero;
             streamCamGO.transform.localRotation = Quaternion.identity;
             streamCamGO.transform.localScale = Vector3.one;
 
             Camera streamCam = streamCamGO.AddComponent<Camera>();
-            streamCam.clearFlags = mainCamera.clearFlags;
-            streamCam.backgroundColor = mainCamera.backgroundColor;
-            streamCam.cullingMask = mainCamera.cullingMask;
-            streamCam.fieldOfView = mainCamera.fieldOfView;
-            streamCam.nearClipPlane = mainCamera.nearClipPlane;
-            streamCam.farClipPlane = mainCamera.farClipPlane;
-            streamCam.depth = mainCamera.depth - 1;
-            var rt = new RenderTexture(1280, 720, 0, RenderTextureFormat.ARGB32);
+            streamCam.clearFlags = source.clearFlags;
+            streamCam.backgroundColor = source.backgroundColor;
+            streamCam.cullingMask = source.cullingMask;
+            streamCam.fieldOfView = source.fieldOfView;
+            streamCam.nearClipPlane = source.nearClipPlane;
+            streamCam.farClipPlane = source.farClipPlane;
+            streamCam.depth = source.depth - 1;
+            // Parking RenderTexture keeps the dedicated camera OFF the HMD display (never the eye
+            // display). Unity 6's Render Graph requires a depth buffer on a camera's output texture,
+            // so create it with 24-bit depth — a depthless RT logs an error every rendered frame.
+            var rt = new RenderTexture(1280, 720, 24, RenderTextureFormat.ARGB32);
             rt.useMipMap = false;
             rt.autoGenerateMips = false;
             rt.Create();
             streamCam.targetTexture = rt;
-            streamCam.enabled = true;
+            // Render only while streaming. StartStreaming() enables it; StopStreaming() disables it.
+            // Avoids rendering the scene to the parking RT every frame while idle (Quest perf).
+            streamCam.enabled = false;
 
+            streamCamGO.AddComponent<ClassroomStreamCameraMarker>();
             return streamCam;
         }
 
@@ -237,12 +257,16 @@ namespace ClassroomClient.Core
             webRTCConnection.OnIceCandidateReceived += OnIceCandidateReceived;
             webRTCConnection.OnDisposeRequested += OnWebRTCDisposeRequested;
 
-            if (streamCamera != null && webRTCConnection.streamCamera == null)
+            // Only ever hand WebRTC a dedicated, ClassroomClient-owned (marked) capture camera.
+            bool dedicatedReady = streamCamera != null && streamCamera.GetComponent<ClassroomStreamCameraMarker>() != null;
+            if (dedicatedReady && webRTCConnection.streamCamera == null)
             {
                 webRTCConnection.streamCamera = streamCamera;
             }
-
-            webRTCConnection.InitializeWebRTC();
+            if (dedicatedReady)
+            {
+                webRTCConnection.InitializeWebRTC();
+            }
         }
 
         private void OnWebSocketConnected()
@@ -580,18 +604,62 @@ namespace ClassroomClient.Core
             }
         }
 
+        // Guarantees `streamCamera` is a dedicated, ClassroomClient-owned (marked) capture camera.
+        // Handles an unsafe camera serialized into the field (e.g. the eye camera) or an older
+        // wizard-created "StreamingCamera" child that predates the marker.
+        private void NormalizeStreamCamera()
+        {
+            if (streamCamera == null) return;
+
+            if (streamCamera.GetComponent<ClassroomStreamCameraMarker>() != null)
+            {
+                if (streamSourceCamera == null)
+                {
+                    Transform p = streamCamera.transform.parent;
+                    streamSourceCamera = (p != null && p.GetComponent<Camera>() != null) ? p.GetComponent<Camera>() : streamCamera;
+                }
+                return;
+            }
+
+            Transform parentT = streamCamera.transform.parent;
+            Camera parentCam = parentT != null ? parentT.GetComponent<Camera>() : null;
+            if (streamCamera.gameObject.name == "StreamingCamera" && parentCam != null)
+            {
+                // Legacy ClassroomClient camera (named "StreamingCamera" AND a child of a Camera) — adopt it.
+                // A developer camera merely named "StreamingCamera" (no parent Camera) falls through to the source branch.
+                streamCamera.gameObject.AddComponent<ClassroomStreamCameraMarker>();
+                streamSourceCamera = parentCam;
+                return;
+            }
+
+            // Any other assigned camera (e.g. the eye camera) is a SOURCE — build a dedicated child.
+            Camera source = streamCamera;
+            streamSourceCamera = source;
+            streamCamera = CreateStreamingCamera(source);
+        }
+
         private void EnsureStreamingSetup()
         {
+            NormalizeStreamCamera();
+
             if (streamCamera == null)
             {
-                Camera mainCamera = Camera.main;
-                if (mainCamera != null)
+                if (cameraSetupMode == CameraSetupMode.Automatic)
                 {
-                    streamCamera = CreateStreamingCamera(mainCamera);
+                    Camera mainCamera = Camera.main;
+                    if (mainCamera != null)
+                    {
+                        streamSourceCamera = mainCamera;
+                        streamCamera = CreateStreamingCamera(mainCamera);
+                    }
+                    else
+                    {
+                        Debug.LogWarning("[ClassroomClientManager] Automatic camera mode: no main camera found for streaming setup.");
+                    }
                 }
                 else
                 {
-                    Debug.LogWarning("[ClassroomClientManager] No main camera found for streaming setup");
+                    Debug.LogWarning("[ClassroomClientManager] API Controlled camera mode: no stream camera set yet. Call ClassroomClientAPI.SetStreamCamera(camera) to choose the streamed viewpoint — streaming will begin automatically once it is set.");
                 }
             }
 
@@ -603,11 +671,12 @@ namespace ClassroomClient.Core
 
             if (webRTCConnection != null && streamCamera != null)
             {
-                if (webRTCConnection.streamCamera == null)
+                // streamCamera is guaranteed marked here (NormalizeStreamCamera ran). Replace
+                // whatever WebRTC currently holds (null OR an unmarked/source camera) with it.
+                if (webRTCConnection.streamCamera != streamCamera)
                 {
                     webRTCConnection.streamCamera = streamCamera;
                 }
-
                 if (!webRTCConnection.IsInitialized)
                 {
                     webRTCConnection.ReinitializeIfNeeded();
@@ -619,6 +688,13 @@ namespace ClassroomClient.Core
         {
             if (isStreaming)
             {
+                return;
+            }
+
+            if (streamCamera == null)
+            {
+                _streamRequested = true;
+                Debug.LogWarning("[ClassroomClientManager] StartStreaming requested but no stream camera is set. Waiting for ClassroomClientAPI.SetStreamCamera(camera).");
                 return;
             }
 
@@ -664,6 +740,8 @@ namespace ClassroomClient.Core
 
         public void StopStreaming()
         {
+            _streamRequested = false;
+
             if (!isStreaming)
             {
                 return;
@@ -675,7 +753,7 @@ namespace ClassroomClient.Core
                 createVideoTrackDelayCoroutine = null;
             }
 
-            if (streamCamera != null)
+            if (streamCamera != null && streamCamera.GetComponent<ClassroomStreamCameraMarker>() != null)
             {
                 streamCamera.enabled = false;
             }
@@ -851,21 +929,51 @@ namespace ClassroomClient.Core
 
         public Camera GetStreamCamera() => streamCamera;
 
+        public bool IsApiControlledCameraMode => cameraSetupMode == CameraSetupMode.ApiControlled;
+
+        public Camera GetStreamSourceCamera() => streamSourceCamera;
+
         public void SetStreamCamera(Camera cam)
         {
             if (cam == null) return;
-            streamCamera = cam;
-            if (webRTCConnection != null && webRTCConnection.streamCamera != cam)
+
+            // The passed camera is always a SOURCE/viewpoint unless it is a camera ClassroomClient
+            // itself created (carries the internal marker). The source is never given a RenderTexture
+            // and never disabled — only the dedicated capture camera is.
+            Camera dedicated;
+            if (cam.GetComponent<ClassroomStreamCameraMarker>() != null)
+            {
+                dedicated = cam;
+                Transform p = cam.transform.parent;
+                streamSourceCamera = (p != null && p.GetComponent<Camera>() != null) ? p.GetComponent<Camera>() : cam;
+            }
+            else
+            {
+                streamSourceCamera = cam;
+                dedicated = CreateStreamingCamera(cam);
+            }
+
+            streamCamera = dedicated;
+
+            if (webRTCConnection != null && webRTCConnection.streamCamera != dedicated)
             {
                 if (isStreaming)
                 {
-                    StartCoroutine(webRTCConnection.ReplaceVideoTrack(cam));
+                    StartCoroutine(webRTCConnection.ReplaceVideoTrack(dedicated));
                 }
                 else
                 {
-                    webRTCConnection.streamCamera = cam;
+                    webRTCConnection.streamCamera = dedicated;
                     webRTCConnection.ReinitializeIfNeeded();
                 }
+            }
+
+            // If a session requested streaming before a camera existed (API Controlled mode), start now.
+            if (_streamRequested && !isStreaming)
+            {
+                _streamRequested = false;
+                EnsureStreamingSetup();
+                StartStreaming();
             }
         }
 

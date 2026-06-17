@@ -31,6 +31,7 @@ namespace ClassroomClient.API
             => Manager?.ReportSceneLoadFailed(sceneKey, reason);
 
         public static Camera GetStreamCamera() => Manager?.GetStreamCamera();
+        public static Camera GetStreamSourceCamera() => Manager?.GetStreamSourceCamera();
         public static void SetStreamCamera(Camera camera) => Manager?.SetStreamCamera(camera);
 
         public static bool IsConnected() => Manager != null && Manager.CurrentState != ConnectionState.Disconnected;

@@ -11,6 +11,7 @@ namespace ClassroomClient.Editor
         private string deviceName = "";
         private string appName = "VR Training App";
         private bool showToken = false;
+        private int cameraSetupModeIndex = 0; // 0 = Automatic, 1 = API Controlled
         private bool _setupComplete;
         private SceneLibraryStep _sceneLibraryStep;
         private Component _createdManager;
@@ -59,6 +60,15 @@ namespace ClassroomClient.Editor
                 appName = EditorGUILayout.TextField("App Name", appName);
 
                 EditorGUILayout.Space();
+                cameraSetupModeIndex = EditorGUILayout.Popup("Camera Setup", cameraSetupModeIndex,
+                    new[] { "Automatic (Recommended)", "API Controlled (Advanced)" });
+                EditorGUILayout.HelpBox(
+                    cameraSetupModeIndex == 0
+                        ? "Automatic: ClassroomClient creates a dedicated streaming camera that follows the main camera. Use this for normal projects."
+                        : "API Controlled: no streaming camera is set up here. Call ClassroomClientAPI.SetStreamCamera(camera) at runtime when your camera (e.g. a runtime/Addressable-loaded rig) exists. The HMD stays protected either way.",
+                    MessageType.None);
+
+                EditorGUILayout.Space();
 
                 bool configValid = !string.IsNullOrEmpty(serverUrl) && !string.IsNullOrEmpty(serverToken);
                 if (!configValid)
@@ -76,7 +86,9 @@ namespace ClassroomClient.Editor
                     "This will:\n" +
                     "• Create ClassroomClient as a persistent root GameObject\n" +
                     "• Add ClassroomClientManager, WebRTCConnection, WebSocketClient\n" +
-                    "• Create StreamingCamera as child of main camera\n" +
+                    (cameraSetupModeIndex == 0
+                        ? "• Create StreamingCamera as child of main camera\n"
+                        : "• Skip camera setup — call ClassroomClientAPI.SetStreamCamera(camera) at runtime\n") +
                     "• Wire all component references automatically\n" +
                     "• Pre-fill server URL, server token, and app name\n\n" +
                     "The VR application is never modified. ClassroomClient runs silently underneath.",
@@ -98,16 +110,16 @@ namespace ClassroomClient.Editor
 
         private void SetupClassroomClient()
         {
-            // Find camera for reference
+            // Find camera for reference (only required in Automatic mode).
             Camera targetCamera = Camera.main;
             if (targetCamera == null)
             {
                 targetCamera = FindAnyObjectByType<Camera>();
             }
 
-            if (targetCamera == null)
+            if (cameraSetupModeIndex == 0 && targetCamera == null)
             {
-                EditorUtility.DisplayDialog("Error", "No camera found! Please add a camera to the scene.", "OK");
+                EditorUtility.DisplayDialog("Error", "Automatic camera mode requires a camera in the scene. Add a camera, or choose API Controlled mode.", "OK");
                 return;
             }
 
@@ -174,8 +186,9 @@ namespace ClassroomClient.Editor
                     Debug.LogWarning("[ClassroomClient] ClassroomSceneManager type not found — scene management unavailable");
                 }
 
-                // 4. Create StreamingCamera as child of main camera
-                Camera streamingCamera = CreateStreamingCamera(targetCamera);
+                // 4. Create StreamingCamera (Automatic mode only). In API Controlled mode the developer
+                // assigns the viewpoint at runtime via ClassroomClientAPI.SetStreamCamera(camera).
+                Camera streamingCamera = (cameraSetupModeIndex == 0) ? CreateStreamingCamera(targetCamera) : null;
 
                 // 5. Create HUD as child of ClassroomClient GameObject
                 GameObject hudGO = new GameObject("ClassroomClient_HUD");
@@ -220,6 +233,16 @@ namespace ClassroomClient.Editor
                 Camera existingCam = existingStreamCam.GetComponent<Camera>();
                 if (existingCam != null)
                 {
+                    var reuseMarker = System.Type.GetType("ClassroomClient.Core.ClassroomStreamCameraMarker, ClassroomClient");
+                    if (reuseMarker != null)
+                    {
+                        if (existingCam.GetComponent(reuseMarker) == null)
+                            existingCam.gameObject.AddComponent(reuseMarker);
+                    }
+                    else
+                    {
+                        Debug.LogWarning("[ClassroomClient] ClassroomStreamCameraMarker type not found — the dedicated camera will be marked at runtime instead.");
+                    }
                     Debug.Log("[ClassroomClient] Using existing StreamingCamera");
                     return existingCam;
                 }
@@ -243,9 +266,23 @@ namespace ClassroomClient.Editor
             streamCam.farClipPlane = mainCamera.farClipPlane;
             streamCam.depth = mainCamera.depth - 1; // Render before main camera
             
-            // Critical: Don't render to any display (WebRTC captures internally)
+            // Off-display while idle. targetDisplay (a serialized int) survives scene save/reload —
+            // unlike a RenderTexture, which would be lost. At runtime WebRTC assigns the real stream
+            // RenderTexture (which overrides targetDisplay), so the dedicated camera never hits the HMD.
             streamCam.targetDisplay = 7; // Unused display
             streamCam.enabled = true;
+
+            // Internal marker so ClassroomClient recognizes this as its own dedicated capture camera.
+            var markerType = System.Type.GetType("ClassroomClient.Core.ClassroomStreamCameraMarker, ClassroomClient");
+            if (markerType != null)
+            {
+                if (streamCamGO.GetComponent(markerType) == null)
+                    streamCamGO.AddComponent(markerType);
+            }
+            else
+            {
+                Debug.LogWarning("[ClassroomClient] ClassroomStreamCameraMarker type not found — the dedicated camera will be marked at runtime instead.");
+            }
 
             Debug.Log($"[ClassroomClient] Created StreamingCamera under {mainCamera.name}");
             return streamCam;
@@ -278,11 +315,7 @@ namespace ClassroomClient.Editor
                 allComponentsFound = false;
             }
 
-            if (streamingCamera == null)
-            {
-                Debug.LogError("[ClassroomClient] StreamingCamera not created!");
-                allComponentsFound = false;
-            }
+            // streamingCamera is intentionally null in API Controlled mode — not an error.
 
             if (!allComponentsFound)
             {
@@ -337,6 +370,10 @@ namespace ClassroomClient.Editor
                 if (appNameField != null)
                     appNameField.stringValue = appName;
 
+                var cameraModeField = managerSO.FindProperty("cameraSetupMode");
+                if (cameraModeField != null)
+                    cameraModeField.enumValueIndex = cameraSetupModeIndex;
+
                 managerSO.ApplyModifiedProperties();
 
                 var webSocketSO = new SerializedObject(webSocket);
@@ -355,7 +392,7 @@ namespace ClassroomClient.Editor
 
                 webRTCSO.ApplyModifiedProperties();
                 
-                Debug.Log($"[ClassroomClient] Component references set. StreamingCamera: {streamingCamera.name}");
+                Debug.Log($"[ClassroomClient] Component references set. StreamingCamera: {(streamingCamera != null ? streamingCamera.name : "(none — API Controlled mode)")}");
             }
             catch (System.Exception e)
             {

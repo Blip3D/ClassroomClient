@@ -268,40 +268,35 @@ namespace ClassroomClient.Core
         {
             if (_manager == null) return;
 
-            // If the existing streaming camera is still alive, leave it alone.
-            // In setup wizard projects the streaming camera lives in DontDestroyOnLoad
-            // as a child of the Camera Rig and survives all scene changes — this check
-            // returns immediately every time in that architecture.
+            // Dedicated capture camera still alive — nothing to do.
+            // In wizard projects the dedicated camera lives in DontDestroyOnLoad as a child of the
+            // Camera Rig and survives scene changes, so this returns immediately (no per-load search).
             Camera existing = _manager.GetStreamCamera();
             if (existing != null && existing.isActiveAndEnabled) return;
 
-            // Streaming camera was destroyed (Camera Rig not in DontDestroyOnLoad).
-            // Search for a replacement. Prefer a camera with a RenderTexture target —
-            // that is the dedicated streaming camera created by the setup wizard.
-            Camera streamCam = null;
-
-            foreach (var cam in Camera.allCameras)
+            // API Controlled mode: ClassroomClient does not auto-pick a camera. The developer
+            // re-assigns the viewpoint via ClassroomClientAPI.SetStreamCamera(camera) when their
+            // (possibly Addressable/runtime-loaded) camera exists.
+            if (_manager.IsApiControlledCameraMode)
             {
-                if (cam.targetTexture != null)
-                {
-                    streamCam = cam;
-                    break;
-                }
-            }
-
-            if (streamCam == null)
-                streamCam = Camera.main;
-
-            if (streamCam == null)
-                streamCam = FindAnyObjectByType<Camera>();
-
-            if (streamCam == null)
-            {
-                Debug.LogWarning("[ClassroomSceneManager] No camera found after scene load — streaming camera not updated");
+                Debug.Log("[ClassroomSceneManager] Stream camera lost after scene load (API Controlled mode) — waiting for ClassroomClientAPI.SetStreamCamera(camera).");
                 return;
             }
 
-            _manager.SetStreamCamera(streamCam);
+            // Automatic mode: re-acquire the current viewpoint (main/XR camera) as the SOURCE and let
+            // the manager rebuild its dedicated capture camera. We do NOT reuse arbitrary cameras that
+            // happen to have a RenderTexture — the manager owns and marks its own dedicated capture camera.
+            Camera source = Camera.main;
+            if (source == null)
+                source = FindAnyObjectByType<Camera>();
+
+            if (source == null)
+            {
+                Debug.LogWarning("[ClassroomSceneManager] No camera found after scene load — streaming camera not updated.");
+                return;
+            }
+
+            _manager.SetStreamCamera(source);
         }
 
         // ── Wire protocol helpers ─────────────────────────────────────────────
