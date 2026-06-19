@@ -6,12 +6,19 @@ namespace ClassroomClient.Editor
 {
     public class SimpleSetupWizard : EditorWindow
     {
-        private string serverUrl = "";
+        private string serverUrl = "ws://192.168.50.1:8080";
         private string serverToken = "";
         private string deviceName = "";
         private string appName = "VR Training App";
         private bool showToken = false;
         private int cameraSetupModeIndex = 0; // 0 = Automatic, 1 = API Controlled
+
+        // Server URL presets (hardcoded). Index 2 = Custom (free-text).
+        private static readonly string[] ServerPresetLabels = { "Raspberry Pi classroom", "blip3d.com cloud", "Custom" };
+        private static readonly string[] ServerPresetUrls = { "ws://192.168.50.1:8080", "wss://blip3d.com", "" };
+        private const int ServerPresetCustom = 2;
+        private int serverPresetIndex = 0; // 0 = Raspberry Pi (matches the serverUrl default)
+
         private bool _setupComplete;
         private SceneLibraryStep _sceneLibraryStep;
         private Component _createdManager;
@@ -36,9 +43,9 @@ namespace ClassroomClient.Editor
 
                 EditorGUILayout.LabelField("Server Configuration", EditorStyles.boldLabel);
                 EditorGUILayout.HelpBox(
-                    "Enter the server URL provided by your IT department.\n" +
+                    "Choose a server preset, or pick Custom to enter the URL from your IT department.\n" +
                     "Raspberry Pi classroom: ws://192.168.50.1:8080\n" +
-                    "Cloud / university server: wss://your-university-server.com",
+                    "blip3d.com cloud: wss://blip3d.com",
                     MessageType.Info);
                 EditorGUILayout.Space();
 
@@ -46,7 +53,20 @@ namespace ClassroomClient.Editor
                 EditorGUILayout.HelpBox("A friendly name for this headset (e.g. Station 1, Quest Lab A).", MessageType.None);
                 EditorGUILayout.Space();
 
+                int newServerPreset = EditorGUILayout.Popup("Server", serverPresetIndex, ServerPresetLabels);
+                if (newServerPreset != serverPresetIndex)
+                {
+                    serverPresetIndex = newServerPreset;
+                    if (serverPresetIndex != ServerPresetCustom)
+                        serverUrl = ServerPresetUrls[serverPresetIndex];
+                    GUI.FocusControl(null); // force the URL field to refresh even if it is focused
+                }
+
                 serverUrl = EditorGUILayout.TextField("Server URL", serverUrl);
+
+                // Editing a preset URL by hand switches the dropdown to Custom.
+                if (serverPresetIndex != ServerPresetCustom && serverUrl != ServerPresetUrls[serverPresetIndex])
+                    serverPresetIndex = ServerPresetCustom;
 
                 EditorGUILayout.BeginHorizontal();
                 if (showToken)

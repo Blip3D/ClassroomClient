@@ -1,5 +1,20 @@
 # Changelog
 
+## [2.74.0] — 2026-06-19
+
+### Added
+- Quick Setup wizard **Server** preset dropdown: pick Raspberry Pi classroom (`ws://192.168.50.1:8080`) or blip3d.com cloud (`wss://blip3d.com`), or Custom to type any URL. Editing the URL by hand switches the dropdown to Custom. Presets are hardcoded; the URL is still saved to the manager exactly as before.
+
+## [2.73.0] — 2026-06-19
+
+### Changed
+- Version alignment (lockstep) with the ClassroomController server/PWA 2.73.0 release — per-session device cap removed server-side. No functional ClassroomClient changes.
+
+## [2.72.0] — 2026-06-19
+
+### Changed
+- Version alignment (lockstep) with the ClassroomController server/PWA 2.72.0 release — device approval lifecycle + security hardening. No functional ClassroomClient changes.
+
 ## [2.71.0] — 2026-06-17
 
 ### Added
