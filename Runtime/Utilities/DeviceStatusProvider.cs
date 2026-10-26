@@ -15,7 +15,7 @@ namespace ClassroomClient.Utilities
         [Header("Settings")]
         [SerializeField] private float updateInterval = 10f;
         [Tooltip("Number of WiFi signal levels (5 = levels 0-4)")]
-        public int wifiSignalLevels = 5; // 0-4 = 5 levels
+        public int wifiSignalLevels = 5;
         
         // Cached values
         private int batteryLevel = 100;
@@ -23,10 +23,8 @@ namespace ClassroomClient.Utilities
         private bool isCharging = false;
         private string wifiSSID = "N/A";
         
-        // Events
         public Action<int, int, bool, string> OnStatusUpdated; // battery, wifi, charging, ssid
         
-        // Properties
         public int BatteryLevel => batteryLevel;
         public int WifiSignalLevel => wifiSignalLevel;
         public bool IsCharging => isCharging;
@@ -44,7 +42,7 @@ namespace ClassroomClient.Utilities
         {
             InitializeAndroid();
             CheckPermissions();
-            UpdateStatus(); // Initial update
+            UpdateStatus();
         }
 
         void Update()
@@ -127,7 +125,6 @@ namespace ClassroomClient.Utilities
                         wifiSignalLevel = statusbarModule.Call<int>("getSignalLevel", unityActivity, wifiSignalLevels);
                         wifiSSID = statusbarModule.Call<string>("getSSID", unityActivity);
                         
-                        // Handle null/empty SSID
                         if (string.IsNullOrEmpty(wifiSSID))
                         {
                             wifiSSID = "N/A";
@@ -155,7 +152,6 @@ namespace ClassroomClient.Utilities
                     }
                 }
                 
-                // Fire event with current values
                 OnStatusUpdated?.Invoke(batteryLevel, wifiSignalLevel, isCharging, wifiSSID);
             }
 #else

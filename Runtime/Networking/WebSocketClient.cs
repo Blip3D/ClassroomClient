@@ -24,7 +24,6 @@ namespace ClassroomClient.Networking
         private string _avatarUrl = "";
         private string serverToken = "";
         
-        // WebSocket connection
         private WebSocket ws;
         private bool isConnected = false;
         private bool isConnecting = false;
@@ -34,7 +33,6 @@ namespace ClassroomClient.Networking
         // Thread-safe message queue (NativeWebSocket may invoke OnMessage off main thread)
         private ConcurrentQueue<string> messageQueue = new ConcurrentQueue<string>();
         
-        // Events
         public System.Action OnConnected;
         public System.Action OnDisconnected;
         public System.Action<string> OnMessageReceived;
@@ -47,10 +45,8 @@ namespace ClassroomClient.Networking
         
         void Update()
         {
-            // Process message queue on main thread (thread-safe)
             ProcessMessageQueue();
             
-            // Send keep-alive ping
             if (isConnected && Time.time - lastPingTime > PING_INTERVAL)
             {
                 SendPing();
@@ -60,7 +56,6 @@ namespace ClassroomClient.Networking
         
         private void ProcessMessageQueue()
         {
-            // Process all queued messages on main thread
             int processedCount = 0;
             while (messageQueue.TryDequeue(out string message) && processedCount < 50) // Limit to prevent blocking
             {
@@ -68,13 +63,11 @@ namespace ClassroomClient.Networking
                 {
                     if (message.StartsWith("ERROR:"))
                     {
-                        // Handle error messages
                         string errorMessage = message.Substring(6); // Remove "ERROR:" prefix
                         Debug.LogError($"[WebSocketClient] Error from background thread: {errorMessage}");
                     }
                     else
                     {
-                        // Handle normal messages
                         OnMessageReceived?.Invoke(message);
                     }
                     processedCount++;
@@ -98,10 +91,9 @@ namespace ClassroomClient.Networking
             if (isConnected)
             {
                 Debug.Log("[WebSocketClient] Already connected");
-                return; // Don't allow reconnect if already connected
+                return;
             }
             
-            // Close existing connection if any
             if (ws != null)
             {
                 try
@@ -115,13 +107,11 @@ namespace ClassroomClient.Networking
                 ws = null;
             }
             
-            // IMPROVED: Explicitly reset connection states before attempting new connection
             isConnected = false;
             isConnecting = true;
             
             try
             {
-                // Create WebSocket connection
                 ws = new WebSocket(serverAddress);
                 
                 ws.OnOpen += () =>
@@ -178,7 +168,6 @@ namespace ClassroomClient.Networking
 
                 string message = System.Text.Encoding.UTF8.GetString(bytes, offset, length);
 
-                // Queue message for processing on main thread (thread-safe)
                 messageQueue.Enqueue(message);
 
                 // Don't call Debug.Log here - it's called from background thread
@@ -186,7 +175,6 @@ namespace ClassroomClient.Networking
             }
             catch (Exception e)
             {
-                // Queue error message for main thread processing
                 messageQueue.Enqueue($"ERROR: {e.Message}");
             }
         }
@@ -264,7 +252,6 @@ namespace ClassroomClient.Networking
         {
             try
             {
-                // Send a simple ping message to keep connection alive
                 var pingMessage = new PingMessage
                 {
                     type = "ping",
@@ -378,7 +365,6 @@ namespace ClassroomClient.Networking
             isConnecting = false;
         }
         
-        // Public getters
         public bool IsConnected => isConnected;
         public bool IsConnecting => isConnecting;
         public string GetConnectionStatus()
@@ -395,7 +381,6 @@ namespace ClassroomClient.Networking
         
         void OnApplicationQuit()
         {
-            // Send disconnect notification before quitting
             if (isConnected)
             {
                 var disconnectMessage = new PingMessage

@@ -3,8 +3,9 @@
     "rootNamespace": "ClassroomClient",
     "references": [
         "Unity.WebRTC",
-        "Meta.Net.endel.nativewebsocket",
-        "Unity.TextMeshPro"
+        "Unity.TextMeshPro",
+        "Unity.Addressables",
+        "Unity.ResourceManager"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],
@@ -28,6 +29,11 @@
             "name": "com.meta.xr.sdk.core",
             "expression": "60.0.0",
             "define": "META_SDK_AVAILABLE"
+        },
+        {
+            "name": "com.unity.addressables",
+            "expression": "1.0.0",
+            "define": "UNITY_ADDRESSABLES"
         }
     ],
     "noEngineReferences": false

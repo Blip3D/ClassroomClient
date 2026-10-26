@@ -2,6 +2,7 @@ using System;
 using System.Collections;
 using UnityEngine;
 using UnityEngine.SceneManagement;
+using ClassroomClient.API;
 using ClassroomClient.Networking;
 
 #if UNITY_ADDRESSABLES
@@ -14,39 +15,56 @@ namespace ClassroomClient.Core
 {
     public class ClassroomSceneManager : MonoBehaviour
     {
-        private WebSocketClient _webSocketClient;
         private ClassroomClientManager _manager;
         private Coroutine _activeLoadCoroutine;
+        private bool _isLoading;
 
-        // Name of the scene that was active when Initialize() was called (the persistent/bootstrap scene)
-        private string _startupSceneName;
+        // The content scene ClassroomClient itself loaded (the ONLY scene it will ever unload).
+        // App scenes (the startup/bootstrap scene, scenes the app or a custom loader loaded) are
+        // never unloaded by ClassroomClient, so the app's camera rig and managers are never destroyed.
+        private Scene _ownedScene;
+        private bool _hasOwnedScene;
 
-        // Name of the scene currently displayed as content
-        private string _currentContentSceneName;
-
-        // Whether the current content scene was loaded via Addressables
-        private bool _currentIsAddressable;
+        private bool _ownedIsAddressable;
 
 #if UNITY_ADDRESSABLES
         private AsyncOperationHandle<SceneInstance> _currentAddressableHandle;
         private bool _hasAddressableHandle;
 #endif
 
-        // ── Events ────────────────────────────────────────────────────────────
         public event Action<SceneInfo> OnLoadSceneRequested;
         public event Action<string> OnSceneLoadStarted;
         public event Action<string> OnSceneLoadCompleted;
         public event Action<string, string> OnSceneLoadFailed;
 
-        // ─────────────────────────────────────────────────────────────────────
-
         public void Initialize(WebSocketClient wsClient, ClassroomClientManager manager)
         {
-            _webSocketClient = wsClient;
             _manager = manager;
-            _startupSceneName = SceneManager.GetActiveScene().name;
-            _currentContentSceneName = _startupSceneName;
-            _currentIsAddressable = false;
+        }
+
+        void OnEnable()
+        {
+            SceneManager.activeSceneChanged += OnActiveSceneChanged;
+        }
+
+        void OnDisable()
+        {
+            SceneManager.activeSceneChanged -= OnActiveSceneChanged;
+            // Deactivating the object stops its coroutines without running their finally blocks.
+            _isLoading = false;
+            _activeLoadCoroutine = null;
+        }
+
+        // The app changed scene by itself (not a ClassroomClient load): forget our scene if the app
+        // unloaded it, and tell the dashboard what is showing now.
+        private void OnActiveSceneChanged(Scene previous, Scene next)
+        {
+            if (_isLoading || !next.IsValid()) return;
+            if (_hasOwnedScene && !_ownedScene.isLoaded)
+            {
+                ForgetOwnedScene(releaseAddressable: true);
+            }
+            _manager?.ReportCurrentScene(KeyForScene(next));
         }
 
         public void LoadScene(SceneInfo info)
@@ -57,51 +75,104 @@ namespace ClassroomClient.Core
                 return;
             }
 
-            if (info.customLoading)
+            if (_isLoading)
             {
-                OnLoadSceneRequested?.Invoke(info);
+                Fail(info.sceneKey, "Another scene is still loading — try again when it has finished");
                 return;
             }
 
-            if (_activeLoadCoroutine != null)
+            if (info.customLoading)
             {
-                StopCoroutine(_activeLoadCoroutine);
-                _activeLoadCoroutine = null;
+                RequestCustomLoad(info);
+                return;
+            }
+
+            if (IsAlreadyLoaded(info))
+            {
+                // Loading it again would add a second copy (two environments, two rigs).
+                Completed(info.sceneKey);
+                return;
             }
 
             switch (info.loadType)
             {
                 case SceneLoadType.Standard:
-                    _activeLoadCoroutine = StartCoroutine(LoadStandardScene(info));
+                    _activeLoadCoroutine = StartCoroutine(RunLoad(info.sceneKey, LoadStandardScene(info)));
                     break;
                 case SceneLoadType.Addressable:
-                    _activeLoadCoroutine = StartCoroutine(LoadAddressableScene(info));
+                    _activeLoadCoroutine = StartCoroutine(RunLoad(info.sceneKey, LoadAddressableScene(info)));
                     break;
                 default:
-                    Debug.LogWarning($"[ClassroomSceneManager] Unknown loadType: {info.loadType}");
+                    Fail(info.sceneKey, $"Unknown loadType: {info.loadType}");
                     break;
             }
+        }
+
+        // Custom loading: the app loads the scene itself and reports the result via
+        // ClassroomClientAPI.ReportSceneLoaded / ReportSceneLoadFailed.
+        private void RequestCustomLoad(SceneInfo info)
+        {
+            if (OnLoadSceneRequested == null && !ClassroomEvents.HasLoadSceneRequestedHandler)
+            {
+                Fail(info.sceneKey, "Custom loading is enabled for this scene but the app has no loader registered (subscribe to ClassroomEvents.OnLoadSceneRequested)");
+                return;
+            }
+
+            try
+            {
+                OnLoadSceneRequested?.Invoke(info);
+                ClassroomEvents.FireOnLoadSceneRequested(info);
+            }
+            catch (Exception e)
+            {
+                Debug.LogException(e);
+                Fail(info.sceneKey, $"Custom scene loader threw: {e.Message}");
+            }
+        }
+
+        // Steps the load by hand so an exception inside it is reported to the teacher instead of
+        // silently ending the coroutine with _isLoading stuck.
+        private IEnumerator RunLoad(string sceneKey, IEnumerator load)
+        {
+            _isLoading = true;
+            while (true)
+            {
+                object current;
+                try
+                {
+                    if (!load.MoveNext()) break;
+                    current = load.Current;
+                }
+                catch (Exception e)
+                {
+                    Debug.LogException(e);
+                    Fail(sceneKey, e.Message);
+                    break;
+                }
+                yield return current;
+            }
+            _isLoading = false;
+            _activeLoadCoroutine = null;
+        }
+
+        private bool IsAlreadyLoaded(SceneInfo info)
+        {
+            string name = System.IO.Path.GetFileNameWithoutExtension(info.sceneKey);
+            for (int i = 0; i < SceneManager.sceneCount; i++)
+            {
+                Scene scene = SceneManager.GetSceneAt(i);
+                if (!scene.isLoaded) continue;
+                if (scene.path == info.sceneKey || scene.name == info.sceneKey || scene.name == name) return true;
+            }
+            return false;
         }
 
         // ── Standard scene loading ────────────────────────────────────────────
 
         private IEnumerator LoadStandardScene(SceneInfo info)
         {
-            OnSceneLoadStarted?.Invoke(info.sceneKey);
+            Started(info.sceneKey);
             Debug.Log($"[ClassroomSceneManager] Loading standard scene: {info.sceneKey}");
-
-            // Snapshot previous scene state before loading
-            string previousSceneName = _currentContentSceneName;
-            bool previousWasAddressable = _currentIsAddressable;
-#if UNITY_ADDRESSABLES
-            AsyncOperationHandle<SceneInstance> previousAddressableHandle = default;
-            bool hasPreviousAddressableHandle = false;
-            if (previousWasAddressable && _hasAddressableHandle)
-            {
-                previousAddressableHandle = _currentAddressableHandle;
-                hasPreviousAddressableHandle = true;
-            }
-#endif
 
             AsyncOperation op = null;
             try
@@ -110,68 +181,32 @@ namespace ClassroomClient.Core
             }
             catch (Exception e)
             {
-                Debug.LogError($"[ClassroomSceneManager] Failed to start loading '{info.sceneKey}': {e.Message}");
-                SendSceneLoadFailed(info.sceneKey, e.Message);
-                OnSceneLoadFailed?.Invoke(info.sceneKey, e.Message);
+                Fail(info.sceneKey, e.Message);
                 yield break;
             }
 
             if (op == null)
             {
-                string reason = $"Scene '{info.sceneKey}' not found in Build Settings";
-                Debug.LogError($"[ClassroomSceneManager] {reason}");
-                SendSceneLoadFailed(info.sceneKey, reason);
-                OnSceneLoadFailed?.Invoke(info.sceneKey, reason);
+                Fail(info.sceneKey, $"Scene '{info.sceneKey}' not found in Build Settings");
                 yield break;
             }
 
             yield return op;
 
-            // Record the new scene name but do NOT call SetActiveScene.
-            // Calling SetActiveScene while the OVR Camera Rig is moving to DontDestroyOnLoad
-            // fires activeSceneChanged on OVRManager before the Camera Rig is stable,
+            // Do NOT call SetActiveScene: calling it while the OVR Camera Rig is moving to
+            // DontDestroyOnLoad fires activeSceneChanged on OVRManager before the rig is stable,
             // causing the compositor to lose its frame submission path (HMD freezes).
-            // Unity will automatically promote the new scene to active when the old one unloads.
-            string newSceneName = System.IO.Path.GetFileNameWithoutExtension(info.sceneKey);
+            // The app's active scene (and its lighting settings) therefore stays as it is.
+            // Unique by name: IsAlreadyLoaded() prevents a second copy being loaded.
+            Scene newScene = SceneManager.GetSceneByPath(info.sceneKey);
+            if (!newScene.IsValid())
+                newScene = SceneManager.GetSceneByName(System.IO.Path.GetFileNameWithoutExtension(info.sceneKey));
+            yield return UnloadOwnedScene();
 
-            _currentContentSceneName = newSceneName;
-            _currentIsAddressable = false;
-#if UNITY_ADDRESSABLES
-            _hasAddressableHandle = false;
-#endif
-
-            // Unload the previous scene.
-            // Before unloading, hide its renderers and lights so the old and new
-            // environments are never visible simultaneously (prevents flicker).
-#if UNITY_ADDRESSABLES
-            if (hasPreviousAddressableHandle)
-            {
-                yield return Addressables.UnloadSceneAsync(previousAddressableHandle);
-                Debug.Log($"[ClassroomSceneManager] Unloaded previous addressable scene: {previousSceneName}");
-            }
-            else
-#endif
-            if (!string.IsNullOrEmpty(previousSceneName))
-            {
-                Scene prevScene = SceneManager.GetSceneByName(previousSceneName);
-                if (prevScene.IsValid() && prevScene.isLoaded)
-                {
-                    foreach (var root in prevScene.GetRootGameObjects())
-                    {
-                        foreach (var r in root.GetComponentsInChildren<Renderer>(true))
-                            r.enabled = false;
-                        foreach (var l in root.GetComponentsInChildren<Light>(true))
-                            l.enabled = false;
-                    }
-                    yield return SceneManager.UnloadSceneAsync(prevScene);
-                    Debug.Log($"[ClassroomSceneManager] Unloaded previous scene: {previousSceneName}");
-                }
-            }
-
-            FindAndUpdateStreamingCamera();
-            SendSceneLoaded(info.sceneKey);
-            OnSceneLoadCompleted?.Invoke(info.sceneKey);
-            Debug.Log($"[ClassroomSceneManager] Scene loaded: {info.sceneKey}");
+            _ownedScene = newScene;
+            _hasOwnedScene = true;
+            _ownedIsAddressable = false;
+            Completed(info.sceneKey);
         }
 
         // ── Addressable scene loading ─────────────────────────────────────────
@@ -179,140 +214,132 @@ namespace ClassroomClient.Core
         private IEnumerator LoadAddressableScene(SceneInfo info)
         {
 #if UNITY_ADDRESSABLES
-            OnSceneLoadStarted?.Invoke(info.sceneKey);
+            Started(info.sceneKey);
             Debug.Log($"[ClassroomSceneManager] Loading addressable scene: {info.sceneKey}");
-
-            // Snapshot previous scene state before loading
-            string previousSceneName = _currentContentSceneName;
-            bool previousWasAddressable = _currentIsAddressable;
-            AsyncOperationHandle<SceneInstance> previousAddressableHandle = default;
-            bool hasPreviousAddressableHandle = false;
-            if (previousWasAddressable && _hasAddressableHandle)
-            {
-                previousAddressableHandle = _currentAddressableHandle;
-                hasPreviousAddressableHandle = true;
-            }
 
             var handle = Addressables.LoadSceneAsync(info.sceneKey, LoadSceneMode.Additive);
             yield return handle;
 
-            if (handle.Status == AsyncOperationStatus.Succeeded)
-            {
-                // Do NOT call SetActiveScene. Calling it while the OVR Camera Rig is moving to
-                // DontDestroyOnLoad fires activeSceneChanged on OVRManager before the Camera Rig
-                // is stable, causing the compositor to lose its frame submission path (HMD freezes).
-                // Unity automatically promotes the new scene to active when the old one unloads.
-                Scene newScene = handle.Result.Scene;
-
-                _currentContentSceneName = newScene.name;
-                _currentIsAddressable = true;
-                _currentAddressableHandle = handle;
-                _hasAddressableHandle = true;
-
-                if (hasPreviousAddressableHandle)
-                {
-                    Scene prevScene = previousAddressableHandle.Result.Scene;
-                    if (prevScene.IsValid())
-                    {
-                        foreach (var root in prevScene.GetRootGameObjects())
-                        {
-                            foreach (var r in root.GetComponentsInChildren<Renderer>(true))
-                                r.enabled = false;
-                            foreach (var l in root.GetComponentsInChildren<Light>(true))
-                                l.enabled = false;
-                        }
-                    }
-                    yield return Addressables.UnloadSceneAsync(previousAddressableHandle);
-                    Debug.Log($"[ClassroomSceneManager] Unloaded previous addressable scene: {previousSceneName}");
-                }
-                else if (!string.IsNullOrEmpty(previousSceneName))
-                {
-                    Scene prevScene = SceneManager.GetSceneByName(previousSceneName);
-                    if (prevScene.IsValid() && prevScene.isLoaded)
-                    {
-                        foreach (var root in prevScene.GetRootGameObjects())
-                        {
-                            foreach (var r in root.GetComponentsInChildren<Renderer>(true))
-                                r.enabled = false;
-                            foreach (var l in root.GetComponentsInChildren<Light>(true))
-                                l.enabled = false;
-                        }
-                        yield return SceneManager.UnloadSceneAsync(prevScene);
-                        Debug.Log($"[ClassroomSceneManager] Unloaded previous scene: {previousSceneName}");
-                    }
-                }
-
-                FindAndUpdateStreamingCamera();
-                SendSceneLoaded(info.sceneKey);
-                OnSceneLoadCompleted?.Invoke(info.sceneKey);
-                Debug.Log($"[ClassroomSceneManager] Addressable scene loaded: {info.sceneKey}");
-            }
-            else
+            if (handle.Status != AsyncOperationStatus.Succeeded)
             {
                 string reason = handle.OperationException?.Message ?? "Addressable load failed";
-                Debug.LogError($"[ClassroomSceneManager] Addressable load failed for '{info.sceneKey}': {reason}");
-                SendSceneLoadFailed(info.sceneKey, reason);
-                OnSceneLoadFailed?.Invoke(info.sceneKey, reason);
+                Addressables.Release(handle);
+                Fail(info.sceneKey, reason);
+                yield break;
             }
+
+            // Do NOT call SetActiveScene (see LoadStandardScene).
+            Scene newScene = handle.Result.Scene;
+            yield return UnloadOwnedScene();
+
+            _ownedScene = newScene;
+            _hasOwnedScene = true;
+            _ownedIsAddressable = true;
+            _currentAddressableHandle = handle;
+            _hasAddressableHandle = true;
+            Completed(info.sceneKey);
 #else
-            Debug.LogWarning("[ClassroomSceneManager] Addressable loading requires the Addressables package (com.unity.addressables). Install it or change loadType to Standard.");
-            SendSceneLoadFailed(info.sceneKey, "Addressables package not installed");
-            OnSceneLoadFailed?.Invoke(info.sceneKey, "Addressables package not installed");
+            Fail(info.sceneKey, "Addressables package not installed");
             yield break;
 #endif
         }
 
-        // ── Post-load camera maintenance ──────────────────────────────────────
+        // ── Unloading the previous content scene ──────────────────────────────
 
-        private void FindAndUpdateStreamingCamera()
+        /// <summary>
+        /// Called when the app reports that it loaded a Custom Loading scene: the scene ClassroomClient
+        /// loaded earlier is no longer the content, so it is unloaded.
+        /// </summary>
+        public void ReleaseOwnedScene()
         {
-            if (_manager == null) return;
-
-            // Dedicated capture camera still alive — nothing to do.
-            // In wizard projects the dedicated camera lives in DontDestroyOnLoad as a child of the
-            // Camera Rig and survives scene changes, so this returns immediately (no per-load search).
-            Camera existing = _manager.GetStreamCamera();
-            if (existing != null && existing.isActiveAndEnabled) return;
-
-            // API Controlled mode: ClassroomClient does not auto-pick a camera. The developer
-            // re-assigns the viewpoint via ClassroomClientAPI.SetStreamCamera(camera) when their
-            // (possibly Addressable/runtime-loaded) camera exists.
-            if (_manager.IsApiControlledCameraMode)
-            {
-                Debug.Log("[ClassroomSceneManager] Stream camera lost after scene load (API Controlled mode) — waiting for ClassroomClientAPI.SetStreamCamera(camera).");
-                return;
-            }
-
-            // Automatic mode: re-acquire the current viewpoint (main/XR camera) as the SOURCE and let
-            // the manager rebuild its dedicated capture camera. We do NOT reuse arbitrary cameras that
-            // happen to have a RenderTexture — the manager owns and marks its own dedicated capture camera.
-            Camera source = Camera.main;
-            if (source == null)
-                source = FindAnyObjectByType<Camera>();
-
-            if (source == null)
-            {
-                Debug.LogWarning("[ClassroomSceneManager] No camera found after scene load — streaming camera not updated.");
-                return;
-            }
-
-            _manager.SetStreamCamera(source);
+            if (!_hasOwnedScene || _isLoading) return;
+            StartCoroutine(UnloadOwnedScene());
         }
 
-        // ── Wire protocol helpers ─────────────────────────────────────────────
-
-        private void SendSceneLoaded(string sceneKey)
+        // Unloads only the scene ClassroomClient loaded last time, never an app scene.
+        private IEnumerator UnloadOwnedScene()
         {
-            if (_webSocketClient == null || !_webSocketClient.IsConnected) return;
-            string deviceId = UnityEngine.SystemInfo.deviceUniqueIdentifier;
-            _webSocketClient.SendMessage($"SCENE_LOADED|{deviceId}|SERVER|{sceneKey}");
+            if (!_hasOwnedScene) yield break;
+            Scene previous = _ownedScene;
+            if (!previous.IsValid() || !previous.isLoaded)
+            {
+                ForgetOwnedScene(releaseAddressable: true);
+                yield break;
+            }
+
+            // Hide the old scene first so old and new environments are never visible together.
+            foreach (var root in previous.GetRootGameObjects())
+            {
+                foreach (var r in root.GetComponentsInChildren<Renderer>(true)) r.enabled = false;
+                foreach (var l in root.GetComponentsInChildren<Light>(true)) l.enabled = false;
+            }
+
+#if UNITY_ADDRESSABLES
+            if (_ownedIsAddressable && _hasAddressableHandle && _currentAddressableHandle.IsValid())
+            {
+                yield return Addressables.UnloadSceneAsync(_currentAddressableHandle);
+                ForgetOwnedScene(releaseAddressable: false);
+                Debug.Log($"[ClassroomSceneManager] Unloaded previous addressable scene: {previous.name}");
+                yield break;
+            }
+#endif
+            yield return SceneManager.UnloadSceneAsync(previous);
+            ForgetOwnedScene(releaseAddressable: false);
+            Debug.Log($"[ClassroomSceneManager] Unloaded previous scene: {previous.name}");
         }
 
-        private void SendSceneLoadFailed(string sceneKey, string reason)
+        private void ForgetOwnedScene(bool releaseAddressable)
         {
-            if (_webSocketClient == null || !_webSocketClient.IsConnected) return;
-            string deviceId = UnityEngine.SystemInfo.deviceUniqueIdentifier;
-            _webSocketClient.SendMessage($"SCENE_LOAD_FAILED|{deviceId}|SERVER|{sceneKey}|{reason}");
+#if UNITY_ADDRESSABLES
+            if (releaseAddressable && _hasAddressableHandle && _currentAddressableHandle.IsValid())
+            {
+                Addressables.Release(_currentAddressableHandle);
+            }
+            _hasAddressableHandle = false;
+#endif
+            _hasOwnedScene = false;
+            _ownedIsAddressable = false;
+        }
+
+        private string KeyForScene(Scene scene)
+        {
+            SceneLibrary library = _manager != null ? _manager.SceneLibrary : null;
+            if (library != null)
+            {
+                foreach (var info in library.scenes)
+                {
+                    if (info == null || string.IsNullOrEmpty(info.sceneKey)) continue;
+                    if (info.sceneKey == scene.path || info.sceneKey == scene.name ||
+                        System.IO.Path.GetFileNameWithoutExtension(info.sceneKey) == scene.name)
+                        return info.sceneKey;
+                }
+            }
+            return scene.name;
+        }
+
+        // ── Result reporting ──────────────────────────────────────────────────
+
+        private void Started(string sceneKey)
+        {
+            OnSceneLoadStarted?.Invoke(sceneKey);
+        }
+
+        private void Completed(string sceneKey)
+        {
+            _manager?.RequestStreamCameraCheck();
+            _manager?.ReportCurrentScene(sceneKey);
+            _manager?.ReportSceneLoaded(sceneKey);
+            OnSceneLoadCompleted?.Invoke(sceneKey);
+            ClassroomEvents.FireOnSceneLoadCompleted(sceneKey);
+            Debug.Log($"[ClassroomSceneManager] Scene loaded: {sceneKey}");
+        }
+
+        private void Fail(string sceneKey, string reason)
+        {
+            Debug.LogError($"[ClassroomSceneManager] Scene load failed for '{sceneKey}': {reason}");
+            _manager?.ReportSceneLoadFailed(sceneKey, reason);
+            OnSceneLoadFailed?.Invoke(sceneKey, reason);
+            ClassroomEvents.FireOnSceneLoadFailed(sceneKey, reason);
         }
     }
 }

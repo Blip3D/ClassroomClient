@@ -152,7 +152,7 @@ namespace ClassroomClient.Editor
                         _showAddressableForm = true;
                         _newAddressable = new AddressableFormData
                         {
-                            customLoading = _buildRows.Count == 0
+                            customLoading = false
                         };
                     }
                 }
@@ -227,7 +227,6 @@ namespace ClassroomClient.Editor
 
         private void CreateAndAssignSceneLibrary(Component managerComponent)
         {
-            // Collect selected scenes
             var sceneInfos = new List<SceneInfo>();
 
             foreach (var row in _buildRows.Where(r => r.include))
@@ -237,7 +236,7 @@ namespace ClassroomClient.Editor
                     displayName = string.IsNullOrEmpty(row.displayName)
                         ? Path.GetFileNameWithoutExtension(row.scenePath) : row.displayName,
                     sceneKey = row.scenePath,
-                    loadType = row.customLoading ? SceneLoadType.Addressable : SceneLoadType.Standard,
+                    loadType = SceneLoadType.Standard,
                     category = CategoryOptions[row.categoryIndex],
                     customLoading = row.customLoading,
                 });
@@ -255,7 +254,6 @@ namespace ClassroomClient.Editor
                 });
             }
 
-            // Create SceneLibrary asset
             const string assetFolder = "Assets/ClassroomClient";
             if (!AssetDatabase.IsValidFolder(assetFolder))
                 AssetDatabase.CreateFolder("Assets", "ClassroomClient");
@@ -278,7 +276,6 @@ namespace ClassroomClient.Editor
             EditorUtility.SetDirty(library);
             AssetDatabase.SaveAssets();
 
-            // Assign to ClassroomClientManager
             if (managerComponent != null)
             {
                 var so = new SerializedObject(managerComponent);

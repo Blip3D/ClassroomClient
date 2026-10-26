@@ -23,7 +23,6 @@ namespace ClassroomClient.HUD
             background.color = new Color(0.11f, 0.11f, 0.11f, 0.88f);
             background.material = CreateOverlayMaterial();
 
-            // Category label
             var catGo = new GameObject("CategoryLabel");
             catGo.transform.SetParent(transform, false);
             categoryLabel = catGo.AddComponent<TextMeshProUGUI>();
@@ -41,14 +40,17 @@ namespace ClassroomClient.HUD
             catRect.offsetMax = new Vector2(-20f, catRect.offsetMax.y);
             ApplyTMPOverlayMaterial(categoryLabel);
 
-            // Message label
             var msgGo = new GameObject("MessageLabel");
             msgGo.transform.SetParent(transform, false);
             messageLabel = msgGo.AddComponent<TextMeshProUGUI>();
             messageLabel.fontSize = 22f;
             messageLabel.color = Color.white;
             messageLabel.alignment = TextAlignmentOptions.Left;
+#if UNITY_6000_0_OR_NEWER
             messageLabel.textWrappingMode = TextWrappingModes.Normal;
+#else
+            messageLabel.enableWordWrapping = true; // TextMeshPro 3.x (Unity 2022 LTS)
+#endif
             var msgRect = msgGo.GetComponent<RectTransform>();
             msgRect.anchorMin = Vector2.zero;
             msgRect.anchorMax = Vector2.one;

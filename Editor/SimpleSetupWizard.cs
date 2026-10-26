@@ -8,10 +8,16 @@ namespace ClassroomClient.Editor
     {
         private string serverUrl = "ws://192.168.50.1:8080";
         private string serverToken = "";
-        private string deviceName = "";
         private string appName = "VR Training App";
         private bool showToken = false;
         private int cameraSetupModeIndex = 0; // 0 = Automatic, 1 = API Controlled
+        private float hudDistance = 0.6f;
+        private float hudVerticalOffset = -0.10f;
+        private float hudIconHeight = 0.22f;
+        private float hudIconSideOffset = 0.25f;
+        private bool streamAppAudio = true;
+        private bool streamMicrophone = false;
+        private const string MicrophoneDefine = "CLASSROOMCLIENT_MICROPHONE";
 
         // Server URL presets (hardcoded). Index 2 = Custom (free-text).
         private static readonly string[] ServerPresetLabels = { "Raspberry Pi classroom", "blip3d.com cloud", "Custom" };
@@ -47,10 +53,6 @@ namespace ClassroomClient.Editor
                     "Raspberry Pi classroom: ws://192.168.50.1:8080\n" +
                     "blip3d.com cloud: wss://blip3d.com",
                     MessageType.Info);
-                EditorGUILayout.Space();
-
-                deviceName = EditorGUILayout.TextField("Device Name", deviceName);
-                EditorGUILayout.HelpBox("A friendly name for this headset (e.g. Station 1, Quest Lab A).", MessageType.None);
                 EditorGUILayout.Space();
 
                 int newServerPreset = EditorGUILayout.Popup("Server", serverPresetIndex, ServerPresetLabels);
@@ -89,6 +91,36 @@ namespace ClassroomClient.Editor
                     MessageType.None);
 
                 EditorGUILayout.Space();
+                EditorGUILayout.LabelField("Headset HUD", EditorStyles.boldLabel);
+                hudDistance = EditorGUILayout.Slider(
+                    new GUIContent("Distance (m)", "How far in front of the user's eyes teacher messages float."),
+                    hudDistance, 0.3f, 1.5f);
+                hudVerticalOffset = EditorGUILayout.Slider(
+                    new GUIContent("Height (m)", "Height of the message panel relative to eye level. Negative = below eye level (default -0.10 m)."),
+                    hudVerticalOffset, -0.4f, 0.3f);
+                hudIconHeight = EditorGUILayout.Slider(
+                    new GUIContent("Icon height (m)", "Height of the status icons (cast / microphone) relative to eye level. Positive = above eye level, out of the way of the VR scene (default +0.22 m)."),
+                    hudIconHeight, -0.2f, 0.4f);
+                hudIconSideOffset = EditorGUILayout.Slider(
+                    new GUIContent("Icon side (m)", "Sideways position of the status icons. Positive = to the right (default +0.25 m → upper-right corner)."),
+                    hudIconSideOffset, -0.4f, 0.4f);
+
+                EditorGUILayout.Space();
+                EditorGUILayout.LabelField("Streamed Audio", EditorStyles.boldLabel);
+                streamAppAudio = EditorGUILayout.Toggle(
+                    new GUIContent("Stream app audio", "Send the app's sound to the dashboard with the video. The headset's own sound is never changed."),
+                    streamAppAudio);
+                streamMicrophone = EditorGUILayout.Toggle(
+                    new GUIContent("Stream microphone", "Also send the headset microphone to the dashboard (a mic icon shows in the HUD while it is streamed). Adds the Android microphone permission to your app."),
+                    streamMicrophone);
+                if (streamMicrophone)
+                {
+                    EditorGUILayout.HelpBox(
+                        "Adds the scripting define " + MicrophoneDefine + " (Android + current platform) so the microphone code is compiled in. Your app will then declare the Android microphone permission and ask the user for it.",
+                        MessageType.Info);
+                }
+
+                EditorGUILayout.Space();
 
                 bool configValid = !string.IsNullOrEmpty(serverUrl) && !string.IsNullOrEmpty(serverToken);
                 if (!configValid)
@@ -116,9 +148,17 @@ namespace ClassroomClient.Editor
             }
             else
             {
+                // A script recompile (domain reload) resets the wizard's in-memory state.
+                if (_sceneLibraryStep == null) _sceneLibraryStep = new SceneLibraryStep();
+                if (_createdManager == null)
+                    _createdManager = FindAnyObjectByType<ClassroomClient.Core.ClassroomClientManager>();
+
                 bool done = _sceneLibraryStep.DrawGUI(_createdManager);
                 if (done)
                 {
+                    // Applied last: changing a scripting define recompiles scripts, which would
+                    // interrupt the wizard if done earlier.
+                    SetMicrophoneDefine(streamMicrophone);
                     EditorUtility.DisplayDialog("Setup Complete",
                         "ClassroomClient and scene library are configured.\n" +
                         "Build and deploy to Quest.",
@@ -160,7 +200,6 @@ namespace ClassroomClient.Editor
 
             try
             {
-                // 1. Add ClassroomClientManager
                 var managerType = System.Type.GetType("ClassroomClient.Core.ClassroomClientManager, ClassroomClient");
                 if (managerType != null)
                 {
@@ -173,7 +212,6 @@ namespace ClassroomClient.Editor
                     return;
                 }
 
-                // 2. Add WebRTCConnection
                 var webRTCType = System.Type.GetType("ClassroomClient.Networking.WebRTCConnection, ClassroomClient");
                 if (webRTCType != null)
                 {
@@ -184,7 +222,6 @@ namespace ClassroomClient.Editor
                     Debug.LogError("[ClassroomClient] WebRTCConnection type not found!");
                 }
 
-                // 3. Add WebSocketClient
                 var webSocketType = System.Type.GetType("ClassroomClient.Networking.WebSocketClient, ClassroomClient");
                 if (webSocketType != null)
                 {
@@ -195,7 +232,6 @@ namespace ClassroomClient.Editor
                     Debug.LogError("[ClassroomClient] WebSocketClient type not found!");
                 }
 
-                // 3b. Add ClassroomSceneManager
                 var sceneManagerType = System.Type.GetType("ClassroomClient.Core.ClassroomSceneManager, ClassroomClient");
                 if (sceneManagerType != null)
                 {
@@ -210,7 +246,6 @@ namespace ClassroomClient.Editor
                 // assigns the viewpoint at runtime via ClassroomClientAPI.SetStreamCamera(camera).
                 Camera streamingCamera = (cameraSetupModeIndex == 0) ? CreateStreamingCamera(targetCamera) : null;
 
-                // 5. Create HUD as child of ClassroomClient GameObject
                 GameObject hudGO = new GameObject("ClassroomClient_HUD");
                 hudGO.transform.SetParent(classroomClientGO.transform, false);
                 var hudType = System.Type.GetType("ClassroomClient.HUD.ClassroomHUD, ClassroomClient");
@@ -223,12 +258,10 @@ namespace ClassroomClient.Editor
                     Debug.LogError("[ClassroomClient] ClassroomHUD type not found!");
                 }
 
-                // 6. Auto-reference all components
                 SetupComponentReferences(classroomClientGO, streamingCamera, hudGO);
 
                 Debug.Log("[ClassroomClient] Setup complete — configure scene library next.");
 
-                // Transition to scene library step
                 var managerComponent = classroomClientGO.GetComponent("ClassroomClient.Core.ClassroomClientManager") as Component;
                 _createdManager = managerComponent;
                 _setupComplete = true;
@@ -246,7 +279,6 @@ namespace ClassroomClient.Editor
 
         private Camera CreateStreamingCamera(Camera mainCamera)
         {
-            // Check if StreamingCamera already exists
             Transform existingStreamCam = mainCamera.transform.Find("StreamingCamera");
             if (existingStreamCam != null)
             {
@@ -268,7 +300,6 @@ namespace ClassroomClient.Editor
                 }
             }
 
-            // Create StreamingCamera as child of main camera
             GameObject streamCamGO = new GameObject("StreamingCamera");
             streamCamGO.transform.SetParent(mainCamera.transform);
             streamCamGO.transform.localPosition = Vector3.zero;
@@ -277,7 +308,6 @@ namespace ClassroomClient.Editor
 
             Camera streamCam = streamCamGO.AddComponent<Camera>();
             
-            // Copy settings from main camera
             streamCam.clearFlags = mainCamera.clearFlags;
             streamCam.backgroundColor = mainCamera.backgroundColor;
             streamCam.cullingMask = mainCamera.cullingMask;
@@ -394,12 +424,23 @@ namespace ClassroomClient.Editor
                 if (cameraModeField != null)
                     cameraModeField.enumValueIndex = cameraSetupModeIndex;
 
+                var appAudioField = managerSO.FindProperty("streamAppAudio");
+                if (appAudioField != null)
+                    appAudioField.boolValue = streamAppAudio;
+
+                var microphoneField = managerSO.FindProperty("streamMicrophone");
+                if (microphoneField != null)
+                    microphoneField.boolValue = streamMicrophone;
+
                 managerSO.ApplyModifiedProperties();
 
                 var webSocketSO = new SerializedObject(webSocket);
                 var deviceNameField = webSocketSO.FindProperty("deviceName");
+                // No name is baked into the build: every headset running the same build would share
+                // it. The server shows a short device id; the admin names headsets in the dashboard
+                // (Admin → Devices → Rename). Re-running the wizard clears a name set by older versions.
                 if (deviceNameField != null)
-                    deviceNameField.stringValue = deviceName;
+                    deviceNameField.stringValue = "";
                 webSocketSO.ApplyModifiedProperties();
 
                 var webRTCSO = new SerializedObject(webRTC);
@@ -411,6 +452,24 @@ namespace ClassroomClient.Editor
                 }
 
                 webRTCSO.ApplyModifiedProperties();
+
+                if (hud != null)
+                {
+                    var hudSO = new SerializedObject(hud);
+                    var distanceField = hudSO.FindProperty("hudDistance");
+                    if (distanceField != null)
+                        distanceField.floatValue = hudDistance;
+                    var heightField = hudSO.FindProperty("hudVerticalOffset");
+                    if (heightField != null)
+                        heightField.floatValue = hudVerticalOffset;
+                    var iconHeightField = hudSO.FindProperty("hudIconHeight");
+                    if (iconHeightField != null)
+                        iconHeightField.floatValue = hudIconHeight;
+                    var iconSideField = hudSO.FindProperty("hudIconSideOffset");
+                    if (iconSideField != null)
+                        iconSideField.floatValue = hudIconSideOffset;
+                    hudSO.ApplyModifiedProperties();
+                }
                 
                 Debug.Log($"[ClassroomClient] Component references set. StreamingCamera: {(streamingCamera != null ? streamingCamera.name : "(none — API Controlled mode)")}");
             }
@@ -420,5 +479,25 @@ namespace ClassroomClient.Editor
             }
         }
 
+        // The microphone code is compiled only with this define, so apps that do not stream the
+        // microphone do not get the Android RECORD_AUDIO permission added by Unity.
+        private static void SetMicrophoneDefine(bool enabled)
+        {
+            var targets = new System.Collections.Generic.HashSet<UnityEditor.Build.NamedBuildTarget>
+            {
+                UnityEditor.Build.NamedBuildTarget.Android,
+                UnityEditor.Build.NamedBuildTarget.FromBuildTargetGroup(EditorUserBuildSettings.selectedBuildTargetGroup),
+            };
+            foreach (var target in targets)
+            {
+                var defines = new System.Collections.Generic.List<string>(
+                    PlayerSettings.GetScriptingDefineSymbols(target).Split(new[] { ';' }, System.StringSplitOptions.RemoveEmptyEntries));
+                bool has = defines.Contains(MicrophoneDefine);
+                if (enabled == has) continue;
+                if (enabled) defines.Add(MicrophoneDefine);
+                else defines.Remove(MicrophoneDefine);
+                PlayerSettings.SetScriptingDefineSymbols(target, string.Join(";", defines));
+            }
+        }
     }
 }

@@ -28,6 +28,13 @@ namespace ClassroomClient.Core
         // True when streaming was requested before a source camera existed (API Controlled mode).
         private bool _streamRequested;
 
+        [Header("Streamed Audio")]
+        [Tooltip("Send the app's sound (what the user hears) to the dashboard together with the video. The headset's own sound is never changed.")]
+        [SerializeField] private bool streamAppAudio = true;
+        [Tooltip("Also send the headset microphone to the dashboard. Requires the CLASSROOMCLIENT_MICROPHONE scripting define — use the Setup Wizard's 'Stream microphone' option. A microphone icon is shown in the HUD while it is streamed.")]
+        [SerializeField] private bool streamMicrophone = false;
+        private Audio.StreamAudioCapture _audioCapture;
+
         [Header("Components")]
         [SerializeField] private WebSocketClient webSocketClient;
         [SerializeField] private WebRTCConnection webRTCConnection;
@@ -45,6 +52,9 @@ namespace ClassroomClient.Core
 
         private bool suppressAutoReconnect;
         private int reconnectAttempt;
+        // Persists across pending-approval retries so a waiting headset backs off instead of
+        // reconnecting every few seconds (which used to exhaust the server's rate limit).
+        private int pendingApprovalAttempt;
 
         private const float ReconnectBaseDelay = 1f;
         private const float ReconnectMaxDelay = 30f;
@@ -64,10 +74,14 @@ namespace ClassroomClient.Core
         private string _avatarUrl = null;
         private string _currentSceneName = "";
         private ClassroomSceneManager _classroomSceneManager;
+        private StreamCameraWatchdog _streamCameraWatchdog;
 
         public ConnectionState CurrentState => currentState;
+        public SceneLibrary SceneLibrary => sceneLibrary;
 
-        private static bool isPersistentInstanceInitialized = false;
+        // The one persistent ClassroomClient. A scene that is loaded again (e.g. the app returning to
+        // its menu/bootstrap scene) brings another copy, which must remove itself.
+        public static ClassroomClientManager Instance { get; private set; }
 
         public Action OnConnected;
         public Action OnDisconnected;
@@ -80,7 +94,6 @@ namespace ClassroomClient.Core
             public string type;
             public string reason;
             public string sessionId;
-            public bool value;
             public string text;
             public string color;
             public string category;
@@ -118,17 +131,19 @@ namespace ClassroomClient.Core
 
         void Awake()
         {
-            if (!isPersistentInstanceInitialized)
+            if (Instance != null && Instance != this)
             {
-                if (transform.parent == null)
-                {
-                    DontDestroyOnLoad(gameObject);
-                }
-                isPersistentInstanceInitialized = true;
-            }
-            else
-            {
+                // Deactivate first so none of this copy's components start (no second WebSocket,
+                // HUD, watchdog or microphone), then remove it.
+                gameObject.SetActive(false);
                 Destroy(gameObject);
+                return;
+            }
+
+            Instance = this;
+            if (transform.parent == null)
+            {
+                DontDestroyOnLoad(gameObject);
             }
         }
 
@@ -159,6 +174,7 @@ namespace ClassroomClient.Core
             SetupWebRTCConnection();
             SetupDeviceStatusProvider();
             SetupClassroomSceneManager();
+            SetupStreamCameraWatchdog();
             isInitialized = true;
         }
 
@@ -181,6 +197,22 @@ namespace ClassroomClient.Core
             {
                 _classroomSceneManager.Initialize(webSocketClient, this);
             }
+        }
+
+        private void SetupStreamCameraWatchdog()
+        {
+            _streamCameraWatchdog = GetComponent<StreamCameraWatchdog>();
+            if (_streamCameraWatchdog == null)
+            {
+                _streamCameraWatchdog = gameObject.AddComponent<StreamCameraWatchdog>();
+            }
+            _streamCameraWatchdog.Initialize(this);
+        }
+
+        /// <summary>Asks the watchdog to verify the stream camera now (e.g. right after a scene load).</summary>
+        public void RequestStreamCameraCheck()
+        {
+            _streamCameraWatchdog?.RequestCheck();
         }
 
         private Camera CreateStreamingCamera(Camera source)
@@ -256,6 +288,7 @@ namespace ClassroomClient.Core
             webRTCConnection.OnOfferCreated += OnOfferCreated;
             webRTCConnection.OnIceCandidateReceived += OnIceCandidateReceived;
             webRTCConnection.OnDisposeRequested += OnWebRTCDisposeRequested;
+            webRTCConnection.audioCapture = GetOrAddAudioCapture();
 
             // Only ever hand WebRTC a dedicated, ClassroomClient-owned (marked) capture camera.
             bool dedicatedReady = streamCamera != null && streamCamera.GetComponent<ClassroomStreamCameraMarker>() != null;
@@ -269,9 +302,31 @@ namespace ClassroomClient.Core
             }
         }
 
+        // Picks up the server's STUN/TURN servers (e.g. the Pi's coturn relay) for the next stream.
+        private async void FetchIceServers()
+        {
+            var servers = await IceConfigFetcher.FetchAsync(serverUrl);
+            if (servers != null && webRTCConnection != null)
+            {
+                webRTCConnection.SetIceServers(servers);
+            }
+        }
+
+        private Audio.StreamAudioCapture GetOrAddAudioCapture()
+        {
+            if (_audioCapture == null)
+            {
+                _audioCapture = GetComponent<Audio.StreamAudioCapture>();
+                if (_audioCapture == null) _audioCapture = gameObject.AddComponent<Audio.StreamAudioCapture>();
+                _audioCapture.Configure(streamAppAudio, streamMicrophone, hud);
+            }
+            return _audioCapture;
+        }
+
         private void OnWebSocketConnected()
         {
-            reconnectAttempt = 0;
+            // reconnectAttempt is reset on "registered", not here: a socket the server closes right
+            // after opening (rate limit) must keep backing off instead of retrying every second.
             if (reconnectCoroutine != null)
             {
                 StopCoroutine(reconnectCoroutine);
@@ -281,7 +336,6 @@ namespace ClassroomClient.Core
             OnConnected?.Invoke();
             currentState = ConnectionState.Connecting;
             hud?.UpdateStatus(currentState);
-            StartDeviceStatusUpdates();
         }
 
         private void OnWebSocketDisconnected()
@@ -317,6 +371,12 @@ namespace ClassroomClient.Core
 
             if (currentState == ConnectionState.PendingApproval)
             {
+                // Still waiting for approval: keep retrying with the pending backoff. A running retry /
+                // re-register coroutine owns the reconnect (its own Disconnect() lands here).
+                if (pendingApprovalCoroutine == null && !suppressAutoReconnect)
+                {
+                    pendingApprovalCoroutine = StartCoroutine(PendingApprovalRetryLoop());
+                }
                 return;
             }
 
@@ -394,7 +454,9 @@ namespace ClassroomClient.Core
                 StopCoroutine(reconnectCoroutine);
                 reconnectCoroutine = null;
             }
-            isPersistentInstanceInitialized = false;
+            // Only the persistent instance may release the slot — a discarded duplicate's OnDestroy
+            // used to reset it, so the NEXT reload of the scene kept a second ClassroomClient alive.
+            if (Instance == this) Instance = null;
         }
 
         void OnApplicationQuit()
@@ -405,7 +467,6 @@ namespace ClassroomClient.Core
                 StopCoroutine(reconnectCoroutine);
                 reconnectCoroutine = null;
             }
-            isPersistentInstanceInitialized = false;
         }
 
         private void OnWebSocketMessageReceived(string message)
@@ -424,6 +485,11 @@ namespace ClassroomClient.Core
                     switch (msg.type)
                     {
                         case "registered":
+                            FetchIceServers();
+                            reconnectAttempt = 0;
+                            pendingApprovalAttempt = 0;
+                            // Before registration the server ignores device messages ("deviceId mismatch").
+                            StartDeviceStatusUpdates();
                             currentState = ConnectionState.InLobby;
                             ClassroomEvents.FireOnConnected();
                             hud?.UpdateStatus(currentState);
@@ -444,6 +510,16 @@ namespace ClassroomClient.Core
                                 Debug.LogError($"[ClassroomClientManager] Registration rejected: {msg.reason}");
                                 currentState = ConnectionState.Disconnected;
                                 hud?.UpdateStatus(currentState);
+                            }
+                            break;
+
+                        case "approved":
+                            // An admin approved this headset while it was waiting — register now
+                            // instead of waiting for the next retry.
+                            if (currentState == ConnectionState.PendingApproval)
+                            {
+                                if (pendingApprovalCoroutine != null) StopCoroutine(pendingApprovalCoroutine);
+                                pendingApprovalCoroutine = StartCoroutine(ReRegisterAfterApproval());
                             }
                             break;
 
@@ -478,11 +554,6 @@ namespace ClassroomClient.Core
                         case "stream_request":
                             StopStreaming();
                             StartStreaming();
-                            break;
-
-                        case "mute":
-                            AudioListener.volume = msg.value ? 0f : 1f;
-                            ClassroomEvents.FireOnMuteChanged(msg.value);
                             break;
 
                         case "message":
@@ -544,11 +615,22 @@ namespace ClassroomClient.Core
 
                 case "LOAD_SCENE":
                     // Format: LOAD_SCENE|SERVER|{deviceId}|{sceneKey}|{loadType}
-                    if (parts.Length >= 4 && _classroomSceneManager != null)
+                    if (parts.Length >= 4)
                     {
                         string sceneKey = parts[3];
                         SceneInfo info = sceneLibrary != null ? sceneLibrary.GetSceneByKey(sceneKey) : null;
-                        _classroomSceneManager.LoadScene(info);
+                        if (_classroomSceneManager == null)
+                        {
+                            ReportSceneLoadFailed(sceneKey, "ClassroomSceneManager component missing on the ClassroomClient object");
+                        }
+                        else if (info == null)
+                        {
+                            ReportSceneLoadFailed(sceneKey, "Scene is not in this app's Scene Library");
+                        }
+                        else
+                        {
+                            _classroomSceneManager.LoadScene(info);
+                        }
                     }
                     break;
 
@@ -675,7 +757,7 @@ namespace ClassroomClient.Core
                 // whatever WebRTC currently holds (null OR an unmarked/source camera) with it.
                 if (webRTCConnection.streamCamera != streamCamera)
                 {
-                    webRTCConnection.streamCamera = streamCamera;
+                    webRTCConnection.SwitchCamera(streamCamera);
                 }
                 if (!webRTCConnection.IsInitialized)
                 {
@@ -698,7 +780,9 @@ namespace ClassroomClient.Core
                 return;
             }
 
-            if (streamCamera != null)
+            // Render only into an off-display target. A wizard-made camera has no RenderTexture
+            // until CreateVideoTrack assigns the stream texture (which then enables it).
+            if (streamCamera != null && streamCamera.targetTexture != null)
             {
                 streamCamera.enabled = true;
             }
@@ -889,20 +973,30 @@ namespace ClassroomClient.Core
 
         private IEnumerator PendingApprovalRetryLoop()
         {
-            float[] delays = { 10f, 15f, 30f, 60f };
-            int attempt = 0;
-            while (currentState == ConnectionState.PendingApproval)
-            {
-                float delay = delays[Mathf.Min(attempt, delays.Length - 1)];
-                Debug.Log($"[ClassroomClientManager] Retrying registration in {delay}s (attempt {attempt + 1})");
-                yield return new WaitForSeconds(delay);
-                if (currentState != ConnectionState.PendingApproval) yield break;
-                webSocketClient?.Disconnect();
-                yield return new WaitForSeconds(0.5f);
-                if (currentState != ConnectionState.PendingApproval) yield break;
-                ConnectToServer(serverUrl);
-                attempt++;
-            }
+            // Fallback only: the server sends "approved" the moment an admin approves this headset.
+            float[] delays = { 15f, 30f, 60f };
+            float delay = delays[Mathf.Min(pendingApprovalAttempt, delays.Length - 1)];
+            pendingApprovalAttempt++;
+            Debug.Log($"[ClassroomClientManager] Waiting for admin approval — retrying registration in {delay}s (attempt {pendingApprovalAttempt})");
+            yield return new WaitForSeconds(delay);
+            if (currentState != ConnectionState.PendingApproval) { pendingApprovalCoroutine = null; yield break; }
+            webSocketClient?.Disconnect();
+            yield return new WaitForSeconds(0.5f);
+            pendingApprovalCoroutine = null;
+            if (currentState != ConnectionState.PendingApproval) yield break;
+            ConnectToServer(serverUrl);
+        }
+
+        private IEnumerator ReRegisterAfterApproval()
+        {
+            Debug.Log("[ClassroomClientManager] Approved by admin — registering now");
+            webSocketClient?.Disconnect();
+            yield return new WaitForSeconds(0.5f);
+            pendingApprovalAttempt = 0;
+            pendingApprovalCoroutine = null;
+            currentState = ConnectionState.Connecting;
+            hud?.UpdateStatus(currentState);
+            ConnectToServer(serverUrl);
         }
 
         public void SendSessionStatus(string status)
@@ -957,15 +1051,10 @@ namespace ClassroomClient.Core
 
             if (webRTCConnection != null && webRTCConnection.streamCamera != dedicated)
             {
-                if (isStreaming)
-                {
-                    StartCoroutine(webRTCConnection.ReplaceVideoTrack(dedicated));
-                }
-                else
-                {
-                    webRTCConnection.streamCamera = dedicated;
-                    webRTCConnection.ReinitializeIfNeeded();
-                }
+                // Hands the existing stream texture to the new camera — the video track is kept,
+                // so this works in every state (idle, starting, streaming, ICE reconnecting).
+                webRTCConnection.SwitchCamera(dedicated);
+                webRTCConnection.ReinitializeIfNeeded();
             }
 
             // If a session requested streaming before a camera existed (API Controlled mode), start now.
@@ -993,6 +1082,14 @@ namespace ClassroomClient.Core
 
         public void ReportSceneLoaded(string sceneKey)
         {
+            // The app finished a "Custom Loading" scene: the scene ClassroomClient loaded before is
+            // no longer the content and must go, otherwise both stay visible.
+            SceneInfo info = sceneLibrary != null ? sceneLibrary.GetSceneByKey(sceneKey) : null;
+            if (info != null && info.customLoading)
+            {
+                _classroomSceneManager?.ReleaseOwnedScene();
+            }
+
             if (webSocketClient == null || !webSocketClient.IsConnected) return;
             string deviceId = SystemInfo.deviceUniqueIdentifier;
             webSocketClient.SendMessage($"SCENE_LOADED|{deviceId}|SERVER|{sceneKey}");

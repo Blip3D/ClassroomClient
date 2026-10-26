@@ -32,17 +32,32 @@ namespace ClassroomClient.Networking
             };
         }
 
-        // WebRTC Components
         private RTCPeerConnection peerConnection;
         private VideoStreamTrack videoTrack;
+        // The RenderTexture the video track encodes. It follows whichever dedicated camera is
+        // currently streamed (see SwitchCamera), so a camera change never replaces the track.
+        private RenderTexture streamTexture;
+        private bool trackCreationInProgress;
+        // Audio track + the MediaStream that groups it with the video (one tile, picture and sound).
+        private MediaStream sendStream;
+        private const ulong AudioMaxBitrate = 64_000;
+
+        // STUN/TURN servers advertised by the server (/api/ice-config); null = default Google STUN.
+        private RTCIceServer[] configuredIceServers;
+
+        public void SetIceServers(RTCIceServer[] servers)
+        {
+            configuredIceServers = servers;
+        }
+
+        /// <summary>Provides the streamed audio track (game sound + optional microphone). Set by ClassroomClientManager.</summary>
+        [NonSerialized] public ClassroomClient.Audio.StreamAudioCapture audioCapture;
         private Coroutine offerCoroutine;
         private Coroutine webRtcUpdateCoroutine;
         
-        // State
         private RTCIceConnectionState currentIceState = RTCIceConnectionState.New;
         private bool isInitialized = false;
         
-        // Events
         public System.Action<RTCIceConnectionState> OnConnectionStateChanged;
         public System.Action<string> OnOfferCreated;
         public System.Action<string> OnAnswerReceived;
@@ -95,17 +110,7 @@ namespace ClassroomClient.Networking
                 offerCoroutine = null;
             }
 
-            if (peerConnection != null)
-            {
-                peerConnection.Close();
-                peerConnection = null;
-            }
-
-            if (videoTrack != null)
-            {
-                videoTrack.Stop();
-                videoTrack = null;
-            }
+            ClosePeerAndTrack();
 
             currentIceState = RTCIceConnectionState.New;
 
@@ -117,10 +122,12 @@ namespace ClassroomClient.Networking
 
             RTCConfiguration config = new RTCConfiguration
             {
-                iceServers = new RTCIceServer[]
-                {
-                    new RTCIceServer { urls = new string[] { "stun:stun.l.google.com:19302" } }
-                }
+                iceServers = configuredIceServers != null && configuredIceServers.Length > 0
+                    ? configuredIceServers
+                    : new RTCIceServer[]
+                    {
+                        new RTCIceServer { urls = new string[] { "stun:stun.l.google.com:19302" } }
+                    }
             };
             
             peerConnection = new RTCPeerConnection(ref config);
@@ -144,11 +151,13 @@ namespace ClassroomClient.Networking
                 yield break;
             }
             
-            if (videoTrack != null)
+            if (videoTrack != null || trackCreationInProgress)
             {
                 yield break;
             }
-            
+
+            trackCreationInProgress = true;
+            RTCPeerConnection connection = peerConnection;
             streamCamera.gameObject.SetActive(true);
 
             var (width, height, bitrate) = GetStreamConfig();
@@ -157,26 +166,37 @@ namespace ClassroomClient.Networking
             rt.autoGenerateMips = false;
             rt.Create();
 
-            // Release the dedicated camera's "parking" RenderTexture before swapping in the
-            // stream-sized one, so the temporary RT created in CreateStreamingCamera isn't orphaned.
-            if (streamCamera.targetTexture != null)
+            // Release the dedicated camera's "parking" RenderTexture (or a previous stream texture)
+            // before swapping in the stream-sized one, so no RenderTexture is orphaned.
+            RenderTexture oldTarget = streamCamera.targetTexture;
+            streamCamera.targetTexture = null;
+            ReleaseTexture(oldTarget);
+            if (streamTexture != oldTarget)
             {
-                var oldRt = streamCamera.targetTexture;
-                streamCamera.targetTexture = null;
-                oldRt.Release();
-                Destroy(oldRt);
+                ReleaseTexture(streamTexture);
             }
             streamCamera.targetTexture = rt;
+            streamTexture = rt;
+            streamCamera.enabled = true;
 
             yield return new WaitForSeconds(0.5f);
-            
+            trackCreationInProgress = false;
+
+            // The stream was stopped or restarted during the wait — this connection is gone.
+            if (peerConnection == null || peerConnection != connection)
+            {
+                yield break;
+            }
+
             try
             {
                 videoTrack = new VideoStreamTrack(rt);
                 
                 if (videoTrack != null)
                 {
-                    peerConnection.AddTrack(videoTrack);
+                    sendStream = new MediaStream();
+                    peerConnection.AddTrack(videoTrack, sendStream);
+                    AddAudioTrack();
 
                     foreach (var sender in peerConnection.GetSenders())
                     {
@@ -218,106 +238,132 @@ namespace ClassroomClient.Networking
             }
         }
 
-        public IEnumerator ReplaceVideoTrack(Camera newCamera)
+        /// <summary>
+        /// Moves the stream to another dedicated camera WITHOUT replacing the WebRTC video track:
+        /// the stream RenderTexture (what the track encodes) is handed to the new camera, so no
+        /// renegotiation is needed and the teacher's tile keeps playing. Safe in every state
+        /// (idle, track being created, streaming, ICE temporarily disconnected).
+        /// </summary>
+        public void SwitchCamera(Camera newCamera)
         {
-            if (peerConnection == null || newCamera == null)
+            if (newCamera == null || newCamera == streamCamera)
             {
-                yield break;
+                return;
             }
 
+            Camera oldCamera = streamCamera;
             streamCamera = newCamera;
-            streamCamera.gameObject.SetActive(true);
-            
-            yield return null;
-            yield return new WaitForSeconds(0.3f);
 
-            VideoStreamTrack newVideoTrack = null;
-            
+            // Only ever touch a camera ClassroomClient created itself — a legacy setup may have the
+            // app's eye camera in this field, and disabling that would black out the headset.
+            bool oldIsDedicated = oldCamera != null &&
+                oldCamera.GetComponent<ClassroomClient.Core.ClassroomStreamCameraMarker>() != null;
+
+            if (streamTexture != null)
+            {
+                RenderTexture parking = newCamera.targetTexture;
+                newCamera.targetTexture = streamTexture;
+                if (oldIsDedicated && oldCamera.targetTexture == streamTexture)
+                {
+                    // The old camera keeps an off-display target in case it is streamed again later.
+                    oldCamera.targetTexture = parking;
+                }
+                else if (parking != streamTexture)
+                {
+                    ReleaseTexture(parking);
+                }
+            }
+
+            if (oldIsDedicated)
+            {
+                oldCamera.enabled = false;
+            }
+
+            if (peerConnection == null)
+            {
+                return;
+            }
+
+            if (streamTexture != null)
+            {
+                // Only render once the camera owns the stream texture (never onto the HMD display).
+                newCamera.gameObject.SetActive(true);
+                newCamera.enabled = true;
+            }
+
+            // Streaming was requested but the track could not be built yet (e.g. the camera died
+            // during startup) — build it now that a camera exists.
+            if (videoTrack == null && !trackCreationInProgress)
+            {
+                StartCoroutine(CreateVideoTrack());
+            }
+        }
+
+        void OnDestroy()
+        {
+            ReleaseTexture(streamTexture);
+            streamTexture = null;
+        }
+
+        private void ReleaseTexture(RenderTexture texture)
+        {
+            if (texture == null)
+            {
+                return;
+            }
+            texture.Release();
+            Destroy(texture);
+        }
+
+        // Audio must be added before the offer is created so it is part of the same negotiation.
+        // A failure here only costs the audio — the video offer must still go out.
+        private void AddAudioTrack()
+        {
             try
             {
-                var (width, height, _) = GetStreamConfig();
-                newVideoTrack = streamCamera.CaptureStreamTrack(width, height);
+                AudioStreamTrack audioTrack = audioCapture != null ? audioCapture.BeginStream() : null;
+                if (audioTrack == null) return;
+
+                RTCRtpSender audioSender = peerConnection.AddTrack(audioTrack, sendStream);
+                if (audioSender == null) return;
+                var parameters = audioSender.GetParameters();
+                foreach (var encoding in parameters.encodings)
+                {
+                    encoding.maxBitrate = AudioMaxBitrate;
+                }
+                audioSender.SetParameters(parameters);
             }
             catch (Exception e)
             {
-                Debug.LogError($"[WebRTCConnection] Exception creating video track: {e.Message}");
-                yield break;
+                Debug.LogError($"[WebRTCConnection] Audio track setup failed — streaming video only: {e.Message}");
+                audioCapture?.EndStream();
             }
-            
-            if (newVideoTrack == null)
-            {
-                yield break;
-            }
+        }
 
-            RTCRtpSender videoSender = null;
-            
-            try
-            {
-                var senders = peerConnection.GetSenders();
-                foreach (var sender in senders)
-                {
-                    if (sender.Track != null && sender.Track.Kind == TrackKind.Video)
-                    {
-                        videoSender = sender;
-                        break;
-                    }
-                }
-            }
-            catch (Exception e)
-            {
-                Debug.LogError($"[WebRTCConnection] Exception finding video sender: {e.Message}");
-            }
+        private void ClosePeerAndTrack()
+        {
+            trackCreationInProgress = false;
+            audioCapture?.EndStream();
 
-            if (videoSender != null)
+            if (peerConnection != null)
             {
-                bool replaceSuccess = false;
-                
-                try
-                {
-                    replaceSuccess = videoSender.ReplaceTrack(newVideoTrack);
-                }
-                catch (Exception e)
-                {
-                    Debug.LogError($"[WebRTCConnection] Exception replacing track: {e.Message}");
-                    replaceSuccess = false;
-                }
-
-                if (!replaceSuccess)
-                {
-                    try
-                    {
-                        peerConnection.RemoveTrack(videoSender);
-                        peerConnection.AddTrack(newVideoTrack);
-                    }
-                    catch (Exception e)
-                    {
-                        Debug.LogError($"[WebRTCConnection] Fallback failed: {e.Message}");
-                    }
-                }
-            }
-            else
-            {
-                try
-                {
-                    peerConnection.AddTrack(newVideoTrack);
-                }
-                catch (Exception e)
-                {
-                    Debug.LogError($"[WebRTCConnection] Exception adding track: {e.Message}");
-                }
+                peerConnection.Close();
+                peerConnection.Dispose();
+                peerConnection = null;
             }
 
             if (videoTrack != null)
             {
-                try
-                {
-                    videoTrack.Stop();
-                }
-                catch { }
+                videoTrack.Stop();
+                videoTrack.Dispose();
+                videoTrack = null;
             }
 
-            videoTrack = newVideoTrack;
-
+            if (sendStream != null)
+            {
+                sendStream.Dispose();
+                sendStream = null;
+            }
         }
 
         public void SetStreamCamera(Camera camera)
@@ -466,24 +512,13 @@ namespace ClassroomClient.Networking
                 offerCoroutine = null;
             }
 
-            if (peerConnection != null)
-            {
-                peerConnection.Close();
-                peerConnection = null;
-            }
-
             if (webRtcUpdateCoroutine != null)
             {
                 StopCoroutine(webRtcUpdateCoroutine);
                 webRtcUpdateCoroutine = null;
             }
 
-            if (videoTrack != null)
-            {
-                videoTrack.Stop();
-                videoTrack = null;
-            }
-            
+            ClosePeerAndTrack();
         }
         
         public bool IsInitialized => isInitialized;

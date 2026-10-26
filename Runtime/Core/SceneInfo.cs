@@ -14,13 +14,13 @@ namespace ClassroomClient.Core
     [Tooltip("The scene path (Build Settings scenes) or Addressable address key used to load this scene at runtime.")]
     public string sceneKey;
 
-    [Tooltip("Standard: loaded via SceneManager.LoadScene. Addressable: loaded via Addressables.LoadSceneAsync. Set automatically based on Custom Loading.")]
+    [Tooltip("Standard: a Build Settings scene, loaded via SceneManager.LoadSceneAsync. Addressable: loaded via Addressables.LoadSceneAsync (requires the com.unity.addressables package).")]
     public SceneLoadType loadType;
 
     [Tooltip("Groups scenes in the PWA content view for easier navigation.")]
     public string category;
 
-    [Tooltip("Check if this scene is loaded via Unity Addressables. Leave unchecked for standard SceneManager loading.")]
+    [Tooltip("Tick only if your app loads this scene itself: ClassroomClient then raises ClassroomEvents.OnLoadSceneRequested instead of loading it, and you report the result with ClassroomClientAPI.ReportSceneLoaded / ReportSceneLoadFailed. Leave unchecked to let ClassroomClient load it (Standard or Addressable).")]
     public bool customLoading;
 
         public SceneInfoData ToData() => new SceneInfoData
