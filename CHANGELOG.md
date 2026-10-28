@@ -1,5 +1,16 @@
 # Changelog
 
+## [2.76.0-beta.1] — 2026-10-28
+
+Beta: per-headset language switch from the dashboard. Requires ClassroomController server/PWA 2.76.0-beta.1 for the dashboard language menu; older servers simply ignore the new messages.
+
+### Added
+- **Language switch for one headset:** the teacher picks a language for a single headset in the dashboard. ClassroomClient raises `ClassroomEvents.OnLanguageChangeRequested(localeCode)` (e.g. `"de"`, `"en"`, `"pt-BR"`); the app switches and saves its own language.
+- `ClassroomClientAPI.ReportLanguage(currentCode, availableCodes)`: tells the dashboard the app's current language and the languages it can switch to. Call it at startup (it may be called before the headset is connected) and after every language change. The dashboard only shows a language menu for headsets that report languages.
+- `ClassroomClientAPI.ReportLanguageFailed(requestedCode, reason)`: tells the dashboard that a switch failed, e.g. a language pack is missing.
+- Requests are answered automatically when the app has no handler (`not_supported`), when the language is not in the reported list (`not_available`), for an invalid code (`invalid_code`) and when the handler throws.
+- The "waiting for admin approval" HUD notice is shown in the app's language (English, German, Portuguese (Brazil)): the language from `ReportLanguage`, else the headset's system language, else English.
+
 ## [2.75.0] — 2026-10-26
 
 Field-test fixes (World of VR on blip3d.com) + streamed audio. Requires ClassroomController server/PWA 2.75.0 for audio and instant approval.

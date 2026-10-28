@@ -22,6 +22,8 @@ namespace ClassroomClient.API
         public static event Action<string> OnSceneLoadCompleted;
         /// <summary>Raised when a teacher-triggered scene load failed (scene key, reason).</summary>
         public static event Action<string, string> OnSceneLoadFailed;
+        /// <summary>Raised when the teacher picks a language for THIS headset in the dashboard (locale code, e.g. "de", "en", "pt-BR"). Switch and save the app's language, then call ClassroomClientAPI.ReportLanguage — or ReportLanguageFailed if it cannot be done.</summary>
+        public static event Action<string> OnLanguageChangeRequested;
 
         internal static void FireOnConnected() => OnConnected?.Invoke();
         internal static void FireOnSessionStarted() => OnSessionStarted?.Invoke();
@@ -33,5 +35,7 @@ namespace ClassroomClient.API
         internal static void FireOnLoadSceneRequested(SceneInfo info) => OnLoadSceneRequested?.Invoke(info);
         internal static void FireOnSceneLoadCompleted(string sceneKey) => OnSceneLoadCompleted?.Invoke(sceneKey);
         internal static void FireOnSceneLoadFailed(string sceneKey, string reason) => OnSceneLoadFailed?.Invoke(sceneKey, reason);
+        internal static bool HasLanguageChangeRequestedHandler => OnLanguageChangeRequested != null;
+        internal static void FireOnLanguageChangeRequested(string localeCode) => OnLanguageChangeRequested?.Invoke(localeCode);
     }
 }

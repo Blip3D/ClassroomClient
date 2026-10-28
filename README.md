@@ -39,7 +39,7 @@ Full beginner-friendly guide, settings and troubleshooting: [`Documentation~/Get
 
 | Document | Contents |
 |---|---|
-| [`Documentation~/GettingStarted.md`](Documentation~/GettingStarted.md) | Installation, Setup Wizard, build, approval, troubleshooting, scene loading, camera modes |
+| [`Documentation~/GettingStarted.md`](Documentation~/GettingStarted.md) | Installation, Setup Wizard, build, approval, troubleshooting, scene loading, camera modes, language switch |
 | [`Documentation~/PublicAPI.md`](Documentation~/PublicAPI.md) | `ClassroomClientAPI`, `ClassroomEvents`, enums |
 | [`Documentation~/NetworkArchitecture.md`](Documentation~/NetworkArchitecture.md) | Messages, WebRTC, STUN/TURN, ports, authentication |
 | [`CHANGELOG.md`](CHANGELOG.md) | Version history |
@@ -67,6 +67,7 @@ A microphone icon appears next to it only while the headset microphone is being 
 - **Scene changes:** if the app changes scene by itself, the stream follows the new camera automatically.
 - **UI in the stream:** Screen Space – Overlay canvases are not captured. Use Screen Space – Camera or World Space canvases for UI the teacher should see.
 - **One instance:** reloading the scene that contains ClassroomClient never creates a second copy.
+- **Language switch (optional):** the teacher can change the language of a single headset from the dashboard — your app reports its languages and switches itself. See [GettingStarted → Language switch](Documentation~/GettingStarted.md#advanced--language-switch-from-the-dashboard).
 
 ---
 
@@ -100,4 +101,4 @@ public class ClassroomHooks : MonoBehaviour
 }
 ```
 
-More (camera selection, custom scene loading, all events): [`Documentation~/PublicAPI.md`](Documentation~/PublicAPI.md).
+More (camera selection, custom scene loading, language switch, all events): [`Documentation~/PublicAPI.md`](Documentation~/PublicAPI.md).

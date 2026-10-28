@@ -1,6 +1,6 @@
 # ClassroomClient Public API Reference
 
-**Who this page is for:** developers who want their VR app's code to talk to ClassroomClient — for example to react when a session starts, report the app's progress, choose which camera is streamed, or load scenes themselves. You do **not** need any of this for a basic setup: ClassroomClient works with zero code changes (see [GettingStarted.md](GettingStarted.md)). Every method here is optional and safe to call at any time.
+**Who this page is for:** developers who want their VR app's code to talk to ClassroomClient — for example to react when a session starts, report the app's progress, choose which camera is streamed, load scenes themselves, or let the teacher switch the app's language. You do **not** need any of this for a basic setup: ClassroomClient works with zero code changes (see [GettingStarted.md](GettingStarted.md)). Every method here is optional and safe to call at any time.
 
 `ClassroomClientAPI`, `ClassroomEvents` and `SessionStatus` are in the `ClassroomClient.API` namespace; `ConnectionState`, `SceneInfo`, `SceneLibrary` and `ClassroomClientManager` are in `ClassroomClient.Core`.
 
@@ -17,6 +17,8 @@
 | `ReportCurrentScene(string sceneKey)` | Tells the dashboard which scene is showing. |
 | `ReportSceneLoaded(string sceneKey)` | Reports that a Custom Loading scene finished loading. |
 | `ReportSceneLoadFailed(string sceneKey, string reason = "")` | Reports that a Custom Loading scene failed to load. |
+| `ReportLanguage(string currentCode, string[] availableCodes)` | Tells the dashboard the app's language and the languages it can switch to. |
+| `ReportLanguageFailed(string requestedCode, string reason = "")` | Reports that switching to a requested language failed. |
 | `SetStreamCamera(Camera camera)` | Chooses the viewpoint that is streamed. |
 | `GetStreamCamera()` | Returns ClassroomClient's own capture camera. |
 | `GetStreamSourceCamera()` | Returns the viewpoint camera the stream follows. |
@@ -106,6 +108,33 @@ public class ReportExample : MonoBehaviour
 ```
 
 A complete Custom Loading example is in [GettingStarted.md → Custom Loading](GettingStarted.md#custom-loading).
+
+---
+
+### `ReportLanguage(string currentCode, string[] availableCodes)`
+
+```csharp
+public static void ReportLanguage(string currentCode, string[] availableCodes)
+```
+
+Tells the dashboard which language the app is showing and which languages it can switch to. Languages are **locale codes** such as `"en"`, `"de"` or `"pt-BR"` (letters, optionally a dash and a region; never `|` or `,`). Invalid codes and duplicates are dropped.
+
+- Call it **once at startup** and **again after every language change** (also changes the user makes in your own menu).
+- It may be called before the headset is connected — even before ClassroomClient exists. ClassroomClient remembers it and sends it as soon as the headset is registered, and again after every reconnect.
+- The dashboard shows a language menu on the headset's tile **only** for headsets that report languages, and only offers the languages in `availableCodes`.
+- ClassroomClient also uses the reported language for its own HUD notice (English, German or Portuguese (Brazil)).
+
+ClassroomClient never saves the language — your app does. Full example: [GettingStarted.md → Language switch from the dashboard](GettingStarted.md#advanced--language-switch-from-the-dashboard).
+
+---
+
+### `ReportLanguageFailed(string requestedCode, string reason = "")`
+
+```csharp
+public static void ReportLanguageFailed(string requestedCode, string reason = "")
+```
+
+Tells the dashboard that a requested language could not be set, e.g. a language pack is missing or failed to download. The teacher sees a red message with your reason. Pass `"not_available"` to get the dashboard's translated text "this language is not available on the headset"; any other reason is shown as you wrote it (plain text, no `|`).
 
 ---
 
@@ -237,6 +266,7 @@ Static events in `ClassroomClient.API`. They are raised on Unity's main thread. 
 | `OnLoadSceneRequested` | `Action<SceneInfo>` | A teacher requested a scene marked **Custom Loading**. |
 | `OnSceneLoadCompleted` | `Action<string>` | ClassroomClient finished loading one of **its** scenes (scene key). Also raised when the requested scene was already loaded. |
 | `OnSceneLoadFailed` | `Action<string, string>` | A teacher-requested load failed inside ClassroomClient: `(sceneKey, reason)`. |
+| `OnLanguageChangeRequested` | `Action<string>` | The teacher picked a language for **this** headset in the dashboard (locale code, e.g. `"de"`). |
 | `OnMuteChanged` | `Action<bool>` | **Obsolete — never raised** (see below). |
 
 ### `OnMessageReceived`
@@ -280,6 +310,21 @@ Load `info.sceneKey` yourself, then call `ReportSceneLoaded` or `ReportSceneLoad
 
 Only cover loads ClassroomClient performs itself (and its own checks: unknown load type, busy, no custom loader, custom loader threw). Your own `ReportSceneLoaded` / `ReportSceneLoadFailed` calls do **not** raise them. Recommended use: unload your custom-loaded scene in `OnSceneLoadCompleted` (see the Custom Loading example in GettingStarted).
 
+### `OnLanguageChangeRequested`
+
+Raised only on the headset the teacher chose; other headsets are not affected. Switch your app's language, **save it** (so it survives a restart), then call `ClassroomClientAPI.ReportLanguage(...)` with the new current language — that is how the dashboard learns it worked. If it cannot be done, call `ReportLanguageFailed(code, reason)`.
+
+ClassroomClient answers the dashboard by itself (your handler is not called) when:
+
+| Situation | Reason the teacher sees |
+|---|---|
+| Nothing is subscribed to this event | `not_supported` — "this app does not support switching the language" |
+| The code is not in the list you passed to `ReportLanguage` | `not_available` |
+| The code is invalid | `invalid_code` |
+| Your handler throws an exception | "Language handler threw: …" |
+
+If neither `ReportLanguage` nor `ReportLanguageFailed` arrives within 15 seconds, the dashboard shows "no answer from the headset".
+
 ### `OnMuteChanged` (obsolete)
 
 ```csharp
@@ -313,7 +358,7 @@ public enum ConnectionState
 | `InLobby` | Yellow | Registered; waiting for a teacher to start a session. |
 | `InSession` | Green | In a session; being streamed. |
 | `Reconnecting` | Yellow | Connection lost; reconnecting automatically. |
-| `PendingApproval` | Blue | Server token accepted, but an admin has not approved this headset yet (Admin → Devices). The headset joins as soon as it is approved. |
+| `PendingApproval` | Blue | Server token accepted, but an admin has not approved this headset yet (Admin → Devices). The headset joins as soon as it is approved. The one-time HUD notice appears in the app's language (see `ReportLanguage`). |
 
 ---
 

@@ -41,6 +41,8 @@ Video and audio travel over WebRTC. The server only relays the handshake (offer,
 - `CURRENT_SCENE` — which scene is showing; sent after ClassroomClient's own loads, when the app changes the active scene, and via `ClassroomClientAPI.ReportCurrentScene()`.
 - `SCENE_LOADED` — a requested scene finished loading (automatic, or `ClassroomClientAPI.ReportSceneLoaded()` for Custom Loading).
 - `SCENE_LOAD_FAILED` — a requested scene could not be loaded, with a reason (automatic for every failure ClassroomClient detects, or `ClassroomClientAPI.ReportSceneLoadFailed()`).
+- `LANGUAGE` — the app's current language and the languages it can switch to (locale codes); sent after registration and on every `ClassroomClientAPI.ReportLanguage()` call. Only sent by apps that report languages.
+- `LANGUAGE_FAILED` — a requested language could not be set, with a reason (automatic, or `ClassroomClientAPI.ReportLanguageFailed()`).
 - `ping` — every 15 seconds; the server answers `pong`. A device the server hears nothing from for 45 seconds is marked offline.
 - WebRTC signaling: `OFFER` and `CANDIDATE` (pipe-delimited), forwarded to the teacher. The headset also sends `DISPOSE` when it closes a stream and a `disconnect` message when it disconnects on purpose; the current server ignores both.
 
@@ -54,6 +56,7 @@ Video and audio travel over WebRTC. The server only relays the handshake (offer,
 - `message` — a teacher message: text, colour, category.
 - `LOAD_SCENE` — load a scene by key. ClassroomClient loads it, or raises `ClassroomEvents.OnLoadSceneRequested` for Custom Loading scenes; the result is always reported back.
 - `REQUEST_CONTENT_LIBRARY` — the server asks for the Scene Library again.
+- `SET_LANGUAGE` — the teacher picked a language for this headset; ClassroomClient raises `ClassroomEvents.OnLanguageChangeRequested` (or answers `LANGUAGE_FAILED` itself, e.g. when the app has no handler).
 - `pong` — keep-alive answer.
 - WebRTC signaling: `ANSWER` and `CANDIDATE`, forwarded from the teacher.
 
@@ -62,7 +65,7 @@ There is **no mute message**: the dashboard's mute button only mutes the tile's 
 **Teacher → Server**
 - `register_controller` — on connect, with the teacher's JWT.
 - `session_ready` — sent once the session view is open; the server holds `session_assigned` for the headsets until then, so the browser is ready before streams start.
-- Scene loading (`LOAD_SCENE`, `load_scene_all`, `load_scene_selected`) and session changes (e.g. adding a headset to a running session).
+- Scene loading (`LOAD_SCENE`, `load_scene_all`, `load_scene_selected`), language changes for one headset (`set_language`) and session changes (e.g. adding a headset to a running session).
 - WebRTC signaling: `ANSWER` and `CANDIDATE`, forwarded to the target headset.
 
 **Server → Teacher**
@@ -70,7 +73,7 @@ There is **no mute message**: the dashboard's mute button only mutes the tile's 
 - `device_connected`, `device_disconnected`, `device_updated`, `lobby_updated` — live lobby updates.
 - `device_pending` — a headset is waiting for approval.
 - `session_created`, `session_ended`, `session_device_added`, `session_device_removed`.
-- `content_library_updated`, `scene_load_result`.
+- `content_library_updated`, `scene_load_result`, `language_change_result` (the headset's current and available languages arrive inside `device_updated`).
 - WebRTC signaling: `OFFER` and `CANDIDATE` from the headset.
 
 The exact message formats are defined in the ClassroomController planning document (Section 5, Message Protocol).

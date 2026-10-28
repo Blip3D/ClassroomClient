@@ -352,6 +352,7 @@ namespace ClassroomClient.Core
 
         private void HandleConnectionLost()
         {
+            if (this == null) return; // destroyed while the socket was still closing
             float now = Time.realtimeSinceStartup;
             if (now - lastConnectionLostRealtime < ConnectionLostDebounceSeconds)
             {
@@ -454,6 +455,15 @@ namespace ClassroomClient.Core
                 StopCoroutine(reconnectCoroutine);
                 reconnectCoroutine = null;
             }
+            // The socket can still report "closed" after this object is gone — stop listening. Compared by
+            // reference: the WebSocketClient component may already be destroyed, but its events still fire.
+            if (!ReferenceEquals(webSocketClient, null))
+            {
+                webSocketClient.OnConnected -= OnWebSocketConnected;
+                webSocketClient.OnDisconnected -= OnWebSocketDisconnected;
+                webSocketClient.OnConnectionFailed -= OnWebSocketConnectionFailed;
+                webSocketClient.OnMessageReceived -= OnWebSocketMessageReceived;
+            }
             // Only the persistent instance may release the slot — a discarded duplicate's OnDestroy
             // used to reset it, so the NEXT reload of the scene kept a second ClassroomClient alive.
             if (Instance == this) Instance = null;
@@ -494,6 +504,7 @@ namespace ClassroomClient.Core
                             ClassroomEvents.FireOnConnected();
                             hud?.UpdateStatus(currentState);
                             SendContentLibrary();
+                            SendLanguageReport();
                             break;
 
                         case "rejected":
@@ -636,6 +647,11 @@ namespace ClassroomClient.Core
 
                 case "REQUEST_CONTENT_LIBRARY":
                     SendContentLibrary();
+                    break;
+
+                case "SET_LANGUAGE":
+                    // Format: SET_LANGUAGE|SERVER|{deviceId}|{localeCode}
+                    ClassroomLanguageBridge.HandleRequest(parts[3], ReportLanguageFailed);
                     break;
 
                 default:
@@ -1100,6 +1116,21 @@ namespace ClassroomClient.Core
             if (webSocketClient == null || !webSocketClient.IsConnected) return;
             string deviceId = SystemInfo.deviceUniqueIdentifier;
             webSocketClient.SendMessage($"SCENE_LOAD_FAILED|{deviceId}|SERVER|{sceneKey}|{reason}");
+        }
+
+        /// <summary>Sends the language the app reported (WS12). Before registration the server would drop it — "registered" sends it again.</summary>
+        public void SendLanguageReport()
+        {
+            if (!ClassroomLanguageBridge.HasReport) return;
+            if (currentState != ConnectionState.InLobby && currentState != ConnectionState.InSession) return;
+            if (webSocketClient == null || !webSocketClient.IsConnected) return;
+            webSocketClient.SendMessage(ClassroomLanguageBridge.BuildLanguageMessage(SystemInfo.deviceUniqueIdentifier));
+        }
+
+        public void ReportLanguageFailed(string requestedCode, string reason)
+        {
+            if (webSocketClient == null || !webSocketClient.IsConnected) return;
+            webSocketClient.SendMessage(ClassroomLanguageBridge.BuildFailedMessage(SystemInfo.deviceUniqueIdentifier, requestedCode, reason));
         }
 
         private void SendContentLibrary()

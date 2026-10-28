@@ -113,7 +113,7 @@ namespace ClassroomClient.HUD
             if (state == ConnectionState.PendingApproval && !pendingNoticeShown)
             {
                 pendingNoticeShown = true;
-                notificationPanel?.Show("Waiting for an admin to approve this headset in the ClassroomController dashboard.", null, "Classroom");
+                notificationPanel?.Show(HudText.PendingApproval, null, "Classroom");
             }
             else if (state == ConnectionState.InLobby || state == ConnectionState.InSession)
             {

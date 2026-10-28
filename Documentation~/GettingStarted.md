@@ -154,7 +154,7 @@ You are done. Everything below is optional.
 |---|---|
 | Green | In a session — this headset is being streamed |
 | Yellow | Connecting / reconnecting, or connected and waiting in the lobby |
-| Blue | Waiting for an admin to approve this headset, or it was rejected (with a one-time notice) — approve it in **Admin → Devices** |
+| Blue | Waiting for an admin to approve this headset, or it was rejected (with a one-time notice in the app's language — English, German or Portuguese (Brazil)) — approve it in **Admin → Devices** |
 | Red | Disconnected (server unreachable or registration rejected) |
 
 **Microphone icon** — shown next to the cast icon only while the headset microphone is actually being streamed.
@@ -174,7 +174,9 @@ You are done. Everything below is optional.
 | **Build And Run cannot find the headset** | Check the USB cable, put the headset on and accept "Allow USB debugging", close the Meta Quest Link app on your computer, unplug and replug the cable, then click **Refresh** next to Run Device. |
 | **Dashboard tile is silent** | Tiles start muted — click the speaker button on the tile. Also check that **Stream app audio** was ticked in the wizard. |
 | **No microphone in the stream** | Was **Stream microphone** ticked and the wizard finished with **Finish**? The headset user must allow the microphone permission (if it was denied, allow it again in the headset's app permission settings). If the app itself is already recording the microphone, ClassroomClient leaves it alone. |
+| **Headset appears in the dashboard but its stream stays black, and the dashboard runs on a Mac** | macOS blocks the browser from reaching devices on the local network until allowed: **System Settings → Privacy & Security → Local Network** → switch the browser (Chrome, Brave, Edge, Safari …) **on**, quit it with **Cmd+Q** and reopen it. Typical sign: it fails when laptop and headset share the same Wi-Fi/hotspot. |
 | **Stream is black or frozen after the app changes scene** | Make sure you use 2.75.0 or newer. In API Controlled mode, call `SetStreamCamera` with the new camera (see below). |
+| **No language menu on the headset's tile** | The menu only appears when the app reports its languages with `ClassroomClientAPI.ReportLanguage` (see [Language switch from the dashboard](#advanced--language-switch-from-the-dashboard)), and needs ClassroomClient and the server at 2.76.0 or newer. |
 | **Menus/UI missing from the stream** | Canvases set to **Screen Space – Overlay** are not captured (the stream is recorded by a camera, and Overlay UI is drawn after all cameras). Use **Screen Space – Camera** or **World Space** for UI that should appear in the stream. |
 
 ---
@@ -356,6 +358,90 @@ public class MyCustomSceneLoader : MonoBehaviour
 ### Scene changes your app makes by itself
 
 If your app switches scenes on its own (not via the dashboard), ClassroomClient notices it, tells the dashboard which scene is now active, and re-attaches the stream to the new camera (Automatic mode) or raises `OnStreamCameraLost` (API Controlled mode). If your app reloads the scene that contains the `ClassroomClient` GameObject, the extra copy removes itself — there is always exactly one ClassroomClient.
+
+---
+
+## Advanced — Language switch from the dashboard
+
+The teacher can change the language of **one** headset from the dashboard: each tile gets a small language menu. ClassroomClient does not translate anything itself — it passes the teacher's choice to your app, and your app switches its own language. This needs a few lines in your app:
+
+1. **At startup, report your languages:** `ClassroomClientAPI.ReportLanguage(currentCode, availableCodes)`, e.g. `("en", new[] { "en", "de", "pt-BR" })`. Without this call the dashboard shows no language menu for this headset.
+2. **Listen for the teacher's choice:** subscribe to `ClassroomEvents.OnLanguageChangeRequested`. It gives you a locale code such as `"de"`.
+3. **Switch, save, report:** switch your app's language, save it (so it survives a restart), and call `ReportLanguage` again with the new language — the teacher then sees a green "switched" message. If it fails (e.g. a language pack is missing), call `ClassroomClientAPI.ReportLanguageFailed(code, reason)` — the teacher sees a red message with your reason.
+
+Also call `ReportLanguage` when the user changes the language in your own menu, so the dashboard stays correct.
+
+Example for apps that use Unity's **Localization** package (`com.unity.localization`). Put it on a GameObject in a scene that is never unloaded (e.g. your startup/bootstrap scene):
+
+```csharp
+using System.Collections;
+using System.Linq;
+using ClassroomClient.API;
+using UnityEngine;
+using UnityEngine.Localization;
+using UnityEngine.Localization.Settings;
+
+public class ClassroomLanguageSwitch : MonoBehaviour
+{
+    private const string SavedLanguageKey = "AppLanguage";
+
+    private IEnumerator Start()
+    {
+        yield return LocalizationSettings.InitializationOperation; // wait until the languages are known
+
+        string saved = PlayerPrefs.GetString(SavedLanguageKey, "");
+        Locale savedLocale = string.IsNullOrEmpty(saved) ? null : LocalizationSettings.AvailableLocales.GetLocale(saved);
+        if (savedLocale != null) LocalizationSettings.SelectedLocale = savedLocale;
+
+        ClassroomEvents.OnLanguageChangeRequested += OnLanguageChangeRequested;
+        LocalizationSettings.SelectedLocaleChanged += OnLocaleChanged;
+        Report();
+    }
+
+    private void OnDestroy()
+    {
+        ClassroomEvents.OnLanguageChangeRequested -= OnLanguageChangeRequested;
+        LocalizationSettings.SelectedLocaleChanged -= OnLocaleChanged;
+    }
+
+    // The teacher picked a language for this headset.
+    private void OnLanguageChangeRequested(string code)
+    {
+        Locale locale = LocalizationSettings.AvailableLocales.GetLocale(code);
+        if (locale == null)
+        {
+            ClassroomClientAPI.ReportLanguageFailed(code, "not_available");
+            return;
+        }
+        LocalizationSettings.SelectedLocale = locale; // OnLocaleChanged saves and reports it
+    }
+
+    // Any language change — from the dashboard or from the app's own menu.
+    private void OnLocaleChanged(Locale locale)
+    {
+        PlayerPrefs.SetString(SavedLanguageKey, locale.Identifier.Code);
+        PlayerPrefs.Save();
+        Report();
+    }
+
+    private void Report()
+    {
+        string current = LocalizationSettings.SelectedLocale != null ? LocalizationSettings.SelectedLocale.Identifier.Code : "";
+        string[] available = LocalizationSettings.AvailableLocales.Locales.Select(l => l.Identifier.Code).ToArray();
+        ClassroomClientAPI.ReportLanguage(current, available);
+    }
+}
+```
+
+If your app has its own localization system, the three steps are the same — only the "switch" and "save" lines change.
+
+**Good to know:**
+- Only the chosen headset is affected; the others keep their language.
+- If your app has no handler, ClassroomClient answers "this app does not support switching the language" by itself. A code you did not list is answered with "not available".
+- If no answer arrives within 15 seconds, the dashboard shows "no answer from the headset".
+- ClassroomClient's own HUD notice ("waiting for approval") uses the language you report (English, German or Portuguese (Brazil); other languages → English).
+
+Details: [PublicAPI.md → ReportLanguage](PublicAPI.md#reportlanguagestring-currentcode-string-availablecodes) and [OnLanguageChangeRequested](PublicAPI.md#onlanguagechangerequested).
 
 ---
 

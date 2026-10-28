@@ -31,6 +31,21 @@ namespace ClassroomClient.API
         public static void ReportSceneLoadFailed(string sceneKey, string reason = "")
             => Manager?.ReportSceneLoadFailed(sceneKey, reason);
 
+        /// <summary>
+        /// Tells the dashboard the app's current language and the languages it can switch to (locale codes,
+        /// e.g. "de", new[] { "de", "en", "pt-BR" }). Call it at startup and after every language change —
+        /// it may be called before the headset is connected; the report is sent once it is registered.
+        /// </summary>
+        public static void ReportLanguage(string currentCode, string[] availableCodes)
+        {
+            ClassroomLanguageBridge.SetReport(currentCode, availableCodes);
+            Manager?.SendLanguageReport();
+        }
+
+        /// <summary>Tells the dashboard that switching to the requested language failed (e.g. reason "not_available").</summary>
+        public static void ReportLanguageFailed(string requestedCode, string reason = "")
+            => Manager?.ReportLanguageFailed(requestedCode, reason);
+
         public static Camera GetStreamCamera() => Manager?.GetStreamCamera();
         public static Camera GetStreamSourceCamera() => Manager?.GetStreamSourceCamera();
         public static void SetStreamCamera(Camera camera) => Manager?.SetStreamCamera(camera);
