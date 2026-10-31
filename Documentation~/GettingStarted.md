@@ -438,7 +438,7 @@ If your app has its own localization system, the three steps are the same — on
 **Good to know:**
 - Only the chosen headset is affected; the others keep their language.
 - If your app has no handler, ClassroomClient answers "this app does not support switching the language" by itself. A code you did not list is answered with "not available".
-- If no answer arrives within 15 seconds, the dashboard shows "no answer from the headset".
+- Slow switches are fine (e.g. downloading a language pack): ClassroomClient tells the dashboard right away that the request arrived, the teacher sees "… is switching to …", and the dashboard waits up to 60 seconds for your `ReportLanguage`. Without that receipt (headset offline) it gives up after 15 seconds.
 - ClassroomClient's own HUD notice ("waiting for approval") uses the language you report (English, German or Portuguese (Brazil); other languages → English).
 
 Details: [PublicAPI.md → ReportLanguage](PublicAPI.md#reportlanguagestring-currentcode-string-availablecodes) and [OnLanguageChangeRequested](PublicAPI.md#onlanguagechangerequested).

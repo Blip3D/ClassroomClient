@@ -312,7 +312,7 @@ Only cover loads ClassroomClient performs itself (and its own checks: unknown lo
 
 ### `OnLanguageChangeRequested`
 
-Raised only on the headset the teacher chose; other headsets are not affected. Switch your app's language, **save it** (so it survives a restart), then call `ClassroomClientAPI.ReportLanguage(...)` with the new current language — that is how the dashboard learns it worked. If it cannot be done, call `ReportLanguageFailed(code, reason)`.
+Raised only on the headset the teacher chose; other headsets are not affected. Switch your app's language, **save it** (so it survives a restart), then call `ClassroomClientAPI.ReportLanguage(...)` with the new current language — that is how the dashboard learns it worked. Report **exactly the code you received** (e.g. `"pt-BR"`, not `"pt"`; letter case does not matter), otherwise the dashboard cannot match the answer to the request. If it cannot be done, call `ReportLanguageFailed(code, reason)`.
 
 ClassroomClient answers the dashboard by itself (your handler is not called) when:
 
@@ -323,7 +323,7 @@ ClassroomClient answers the dashboard by itself (your handler is not called) whe
 | The code is invalid | `invalid_code` |
 | Your handler throws an exception | "Language handler threw: …" |
 
-If neither `ReportLanguage` nor `ReportLanguageFailed` arrives within 15 seconds, the dashboard shows "no answer from the headset".
+As soon as your handler has run (without an exception), ClassroomClient confirms receipt to the dashboard by itself (2.77.0): the teacher sees "… is switching to …" and the dashboard waits up to **60 seconds** for your `ReportLanguage` / `ReportLanguageFailed` — enough time to download a language pack. You do not need to answer inside the handler; answer whenever the switch is done. Without any receipt (e.g. headset offline, or a package older than 2.77.0) the dashboard gives up after 15 seconds ("no answer from the headset"); after a receipt but no answer within 60 seconds it shows "the headset started switching but did not confirm it".
 
 ### `OnMuteChanged` (obsolete)
 

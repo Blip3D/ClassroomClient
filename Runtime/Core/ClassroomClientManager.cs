@@ -651,7 +651,7 @@ namespace ClassroomClient.Core
 
                 case "SET_LANGUAGE":
                     // Format: SET_LANGUAGE|SERVER|{deviceId}|{localeCode}
-                    ClassroomLanguageBridge.HandleRequest(parts[3], ReportLanguageFailed);
+                    ClassroomLanguageBridge.HandleRequest(parts[3], ReportLanguageFailed, SendLanguageAck);
                     break;
 
                 default:
@@ -1125,6 +1125,12 @@ namespace ClassroomClient.Core
             if (currentState != ConnectionState.InLobby && currentState != ConnectionState.InSession) return;
             if (webSocketClient == null || !webSocketClient.IsConnected) return;
             webSocketClient.SendMessage(ClassroomLanguageBridge.BuildLanguageMessage(SystemInfo.deviceUniqueIdentifier));
+        }
+
+        private void SendLanguageAck(string requestedCode)
+        {
+            if (webSocketClient == null || !webSocketClient.IsConnected) return;
+            webSocketClient.SendMessage(ClassroomLanguageBridge.BuildAckMessage(SystemInfo.deviceUniqueIdentifier, requestedCode));
         }
 
         public void ReportLanguageFailed(string requestedCode, string reason)

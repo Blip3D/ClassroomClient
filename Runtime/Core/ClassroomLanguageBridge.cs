@@ -36,8 +36,11 @@ namespace ClassroomClient.Core
             HasReport = true;
         }
 
-        /// <summary>Hands a valid request to the app, or reports why it cannot be done.</summary>
-        internal static void HandleRequest(string localeCode, Action<string, string> reportFailed)
+        /// <summary>
+        /// Hands a valid request to the app and confirms receipt (WS13: the dashboard then waits longer,
+        /// e.g. while the app downloads a language pack), or reports why it cannot be done.
+        /// </summary>
+        internal static void HandleRequest(string localeCode, Action<string, string> reportFailed, Action<string> sendAck)
         {
             string failure = CheckRequest(localeCode);
             if (failure != null)
@@ -54,7 +57,9 @@ namespace ClassroomClient.Core
             {
                 Debug.LogException(e);
                 reportFailed(localeCode, $"Language handler threw: {e.Message}");
+                return;
             }
+            sendAck(localeCode);
         }
 
         internal static string CheckRequest(string localeCode)
@@ -70,6 +75,10 @@ namespace ClassroomClient.Core
         // LANGUAGE|{deviceId}|SERVER|{currentCode}|{availableCodes}
         internal static string BuildLanguageMessage(string deviceId)
             => $"LANGUAGE|{deviceId}|SERVER|{CurrentCode}|{string.Join(",", AvailableCodes)}";
+
+        // LANGUAGE_ACK|{deviceId}|SERVER|{requestedCode}
+        internal static string BuildAckMessage(string deviceId, string requestedCode)
+            => $"LANGUAGE_ACK|{deviceId}|SERVER|{requestedCode}";
 
         // LANGUAGE_FAILED|{deviceId}|SERVER|{requestedCode}|{reason}
         internal static string BuildFailedMessage(string deviceId, string requestedCode, string reason)

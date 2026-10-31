@@ -1,5 +1,16 @@
 # Changelog
 
+## [2.77.0] — 2026-10-31
+
+First final release with the per-headset language switch (tested as 2.76.0-beta.1 on Quest, PICO and Windows). There is no separate final 2.76.0. Requires ClassroomController server/PWA 2.77.0 for the "switching…" message; everything else also works with server 2.76.0-beta.1.
+
+### Added
+- Everything listed under 2.76.0-beta.1 below (language switch for one headset, `ReportLanguage`, `ReportLanguageFailed`, HUD notice in the app's language).
+- **The headset confirms that it received a language request.** As soon as the request is handed to the app, ClassroomClient tells the dashboard by itself; the teacher then sees "… is switching to …" and the dashboard waits up to 60 seconds instead of 15 seconds — enough for downloading a language pack. No code change in the app is needed.
+
+### Fixed
+- No `MissingReferenceException` when ClassroomClient is destroyed while its connection is still closing.
+
 ## [2.76.0-beta.1] — 2026-10-28
 
 Beta: per-headset language switch from the dashboard. Requires ClassroomController server/PWA 2.76.0-beta.1 for the dashboard language menu; older servers simply ignore the new messages.

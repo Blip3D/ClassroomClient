@@ -42,6 +42,7 @@ Video and audio travel over WebRTC. The server only relays the handshake (offer,
 - `SCENE_LOADED` — a requested scene finished loading (automatic, or `ClassroomClientAPI.ReportSceneLoaded()` for Custom Loading).
 - `SCENE_LOAD_FAILED` — a requested scene could not be loaded, with a reason (automatic for every failure ClassroomClient detects, or `ClassroomClientAPI.ReportSceneLoadFailed()`).
 - `LANGUAGE` — the app's current language and the languages it can switch to (locale codes); sent after registration and on every `ClassroomClientAPI.ReportLanguage()` call. Only sent by apps that report languages.
+- `LANGUAGE_ACK` — sent automatically as soon as a `SET_LANGUAGE` request was handed to the app (2.77.0); the dashboard then shows "switching…" and waits longer.
 - `LANGUAGE_FAILED` — a requested language could not be set, with a reason (automatic, or `ClassroomClientAPI.ReportLanguageFailed()`).
 - `ping` — every 15 seconds; the server answers `pong`. A device the server hears nothing from for 45 seconds is marked offline.
 - WebRTC signaling: `OFFER` and `CANDIDATE` (pipe-delimited), forwarded to the teacher. The headset also sends `DISPOSE` when it closes a stream and a `disconnect` message when it disconnects on purpose; the current server ignores both.
@@ -73,7 +74,7 @@ There is **no mute message**: the dashboard's mute button only mutes the tile's 
 - `device_connected`, `device_disconnected`, `device_updated`, `lobby_updated` — live lobby updates.
 - `device_pending` — a headset is waiting for approval.
 - `session_created`, `session_ended`, `session_device_added`, `session_device_removed`.
-- `content_library_updated`, `scene_load_result`, `language_change_result` (the headset's current and available languages arrive inside `device_updated`).
+- `content_library_updated`, `scene_load_result`, `language_change_progress` (the headset received a language request), `language_change_result` (the headset's current and available languages arrive inside `device_updated`).
 - WebRTC signaling: `OFFER` and `CANDIDATE` from the headset.
 
 The exact message formats are defined in the ClassroomController planning document (Section 5, Message Protocol).
