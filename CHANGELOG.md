@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.77.1] — 2026-11-09
+
+### Fixed
+- **The stream camera stops rendering after a stream ends.** When the connection dropped just before "End session" or a lost WebSocket, the camera stayed on and the connection stayed open, which kept frame times high until the app was restarted. Reported by World of VR on PICO 4 Ultra.
+- The stream camera also stops rendering when the connection to the dashboard fails, for example when the teacher is away. It starts again when the teacher returns.
+- **The camera made by the Setup Wizard no longer renders while idle.** It used to run from app start until the first stream stopped. Existing scenes are fixed at startup, so you don't need to run the wizard again.
+
 ## [2.77.0] — 2026-10-31
 
 First final release with the per-headset language switch (tested as 2.76.0-beta.1 on Quest, PICO and Windows). There is no separate final 2.76.0. Requires ClassroomController server/PWA 2.77.0 for the "switching…" message; everything else also works with server 2.76.0-beta.1.

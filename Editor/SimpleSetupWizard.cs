@@ -295,6 +295,8 @@ namespace ClassroomClient.Editor
                     {
                         Debug.LogWarning("[ClassroomClient] ClassroomStreamCameraMarker type not found — the dedicated camera will be marked at runtime instead.");
                     }
+                    existingCam.enabled = false; // Older wizard versions saved it enabled.
+                    EditorUtility.SetDirty(existingCam);
                     Debug.Log("[ClassroomClient] Using existing StreamingCamera");
                     return existingCam;
                 }
@@ -320,7 +322,8 @@ namespace ClassroomClient.Editor
             // unlike a RenderTexture, which would be lost. At runtime WebRTC assigns the real stream
             // RenderTexture (which overrides targetDisplay), so the dedicated camera never hits the HMD.
             streamCam.targetDisplay = 7; // Unused display
-            streamCam.enabled = true;
+            // Render only while streaming: CreateVideoTrack enables it once it has the stream texture.
+            streamCam.enabled = false;
 
             // Internal marker so ClassroomClient recognizes this as its own dedicated capture camera.
             var markerType = System.Type.GetType("ClassroomClient.Core.ClassroomStreamCameraMarker, ClassroomClient");

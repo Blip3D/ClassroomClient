@@ -64,6 +64,9 @@ namespace ClassroomClient.Core
 
         private bool isInitialized = false;
         private bool isStreaming = false;
+        // True from StartStreaming() until the next stop. ICE loss clears isStreaming before the stop
+        // arrives, so isStreaming alone cannot decide whether the camera and connection need cleaning up.
+        private bool streamResourcesActive = false;
 
         private ConnectionState currentState = ConnectionState.Disconnected;
         private string currentSessionId;
@@ -175,7 +178,16 @@ namespace ClassroomClient.Core
             SetupDeviceStatusProvider();
             SetupClassroomSceneManager();
             SetupStreamCameraWatchdog();
+            TurnOffIdleStreamCamera();
             isInitialized = true;
+        }
+
+        // Scenes set up with an older wizard version have the camera saved as enabled.
+        private void TurnOffIdleStreamCamera()
+        {
+            if (streamResourcesActive) return;
+            NormalizeStreamCamera();
+            DisableStreamCamera();
         }
 
         private void SetupDeviceStatusProvider()
@@ -225,6 +237,10 @@ namespace ClassroomClient.Core
                 {
                     if (existingCam.GetComponent<ClassroomStreamCameraMarker>() == null)
                         existingCam.gameObject.AddComponent<ClassroomStreamCameraMarker>();
+                    // A camera from another scene may be saved as enabled. SwitchCamera or
+                    // CreateVideoTrack turns it on when streaming. The current one is already managed.
+                    if (existingCam != streamCamera)
+                        existingCam.enabled = false;
                     return existingCam;
                 }
             }
@@ -363,7 +379,7 @@ namespace ClassroomClient.Core
 
             OnDisconnected?.Invoke();
 
-            if (isStreaming)
+            if (isStreaming || streamResourcesActive)
             {
                 StopStreaming();
             }
@@ -666,14 +682,42 @@ namespace ClassroomClient.Core
             {
                 case RTCIceConnectionState.Connected:
                     isStreaming = true;
+                    if (streamResourcesActive)
+                    {
+                        EnableStreamCamera(); // Resume in case ICE recovered after Failed.
+                    }
                     OnStreamingStarted?.Invoke();
                     break;
-                case RTCIceConnectionState.Disconnected:
                 case RTCIceConnectionState.Failed:
+                    // The teacher may stay away for a long time: don't render until the stream restarts.
+                    // Not on Disconnected, which often recovers by itself and must not freeze the picture.
+                    DisableStreamCamera();
+                    isStreaming = false;
+                    OnStreamingStopped?.Invoke();
+                    break;
+                case RTCIceConnectionState.Disconnected:
                 case RTCIceConnectionState.Closed:
                     isStreaming = false;
                     OnStreamingStopped?.Invoke();
                     break;
+            }
+        }
+
+        // Render only into an off-display target. A wizard-made camera has no RenderTexture
+        // until CreateVideoTrack assigns the stream texture (which then enables it).
+        private void EnableStreamCamera()
+        {
+            if (streamCamera != null && streamCamera.targetTexture != null)
+            {
+                streamCamera.enabled = true;
+            }
+        }
+
+        private void DisableStreamCamera()
+        {
+            if (streamCamera != null && streamCamera.GetComponent<ClassroomStreamCameraMarker>() != null)
+            {
+                streamCamera.enabled = false;
             }
         }
 
@@ -796,12 +840,8 @@ namespace ClassroomClient.Core
                 return;
             }
 
-            // Render only into an off-display target. A wizard-made camera has no RenderTexture
-            // until CreateVideoTrack assigns the stream texture (which then enables it).
-            if (streamCamera != null && streamCamera.targetTexture != null)
-            {
-                streamCamera.enabled = true;
-            }
+            streamResourcesActive = true;
+            EnableStreamCamera();
 
             if (webRTCConnection != null && webRTCConnection.IsInitialized)
             {
@@ -842,10 +882,13 @@ namespace ClassroomClient.Core
         {
             _streamRequested = false;
 
-            if (!isStreaming)
+            if (!isStreaming && !streamResourcesActive)
             {
                 return;
             }
+
+            bool wasStreaming = isStreaming;
+            streamResourcesActive = false;
 
             if (createVideoTrackDelayCoroutine != null)
             {
@@ -853,10 +896,7 @@ namespace ClassroomClient.Core
                 createVideoTrackDelayCoroutine = null;
             }
 
-            if (streamCamera != null && streamCamera.GetComponent<ClassroomStreamCameraMarker>() != null)
-            {
-                streamCamera.enabled = false;
-            }
+            DisableStreamCamera();
 
             if (webRTCConnection != null)
             {
@@ -864,7 +904,10 @@ namespace ClassroomClient.Core
             }
 
             isStreaming = false;
-            OnStreamingStopped?.Invoke();
+            if (wasStreaming)
+            {
+                OnStreamingStopped?.Invoke(); // ICE loss already reported the stop otherwise.
+            }
         }
 
         public void ConnectToServer(string serverAddress)
